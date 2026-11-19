@@ -15,12 +15,14 @@
 import { getRegion } from '../utils/constant.js';
 
 import {
+  CreateMemoryRequest,
   describeType,
   MemoryInfo,
   MemoryListFilter,
   MemoryListResponse,
   MemorySearchFilter,
   MemorySearchResponse,
+  MemoryUpdateRequest,
   MessageBatchResponse,
   MessageInfo,
   MessageListResponse,
@@ -418,6 +420,31 @@ export class MemoryClient<C extends _DataPlane = _DataPlane> {
   }
 
   // ==================== Data Plane - Memory Management ====================
+
+  /**
+   * Create a long-term memory record directly.
+   *
+   * Accepts an existing request model or an OpenAPI body with snake_case keys.
+   */
+  async createMemory(
+    spaceId: string,
+    request: CreateMemoryRequest | JsonDict,
+  ): Promise<MemoryInfo> {
+    return this._dataPlane.createMemory(spaceId, request);
+  }
+
+  /**
+   * Update the content or metadata of a long-term memory record.
+   *
+   * Accepts an existing request model or an OpenAPI body with snake_case keys.
+   */
+  async updateMemory(
+    spaceId: string,
+    memoryId: string,
+    request: MemoryUpdateRequest | JsonDict,
+  ): Promise<MemoryInfo> {
+    return this._dataPlane.updateMemory(spaceId, memoryId, request);
+  }
 
   /** Search memories in a Space (semantic similarity). */
   async searchMemories(
