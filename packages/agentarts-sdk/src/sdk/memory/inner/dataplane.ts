@@ -13,11 +13,13 @@ import { getLogger } from '../../utils/logging.js';
 import { MemoryHttpService } from '../../service/memory-service.js';
 
 import {
+  CreateMemoryRequest,
   MemoryInfo,
   MemoryListFilter,
   MemoryListResponse,
   MemorySearchFilter,
   MemorySearchResponse,
+  MemoryUpdateRequest,
   MessageBatchResponse,
   MessageInfo,
   MessageListResponse,
@@ -227,6 +229,38 @@ export class _DataPlane<C extends MemoryHttpService = MemoryHttpService> {
     logger.info(`Listing messages in space: ${spaceId}, session: ${sessionId}`);
     const result = await this.client.listMessages(spaceId, sessionId, limit, offset);
     return MessageListResponse.fromDict(result);
+  }
+
+  /** Create a long-term memory record through the existing HTTP service. */
+  async createMemory(
+    spaceId: string,
+    request: CreateMemoryRequest | JsonDict,
+  ): Promise<MemoryInfo> {
+    if (!spaceId) {
+      throw new Error('space_id is required for data plane operations');
+    }
+
+    const data = typeof request.toDict === 'function' ? request.toDict() : request;
+    const result = await this.client.createMemory(spaceId, data);
+    return MemoryInfo.fromDict(result);
+  }
+
+  /** Update a long-term memory record through the existing HTTP service. */
+  async updateMemory(
+    spaceId: string,
+    memoryId: string,
+    request: MemoryUpdateRequest | JsonDict,
+  ): Promise<MemoryInfo> {
+    if (!spaceId) {
+      throw new Error('space_id is required for data plane operations');
+    }
+    if (!memoryId) {
+      throw new Error('memory_id is required for update operation');
+    }
+
+    const data = typeof request.toDict === 'function' ? request.toDict() : request;
+    const result = await this.client.updateMemory(spaceId, memoryId, data);
+    return MemoryInfo.fromDict(result);
   }
 
   /** Search memories. */
