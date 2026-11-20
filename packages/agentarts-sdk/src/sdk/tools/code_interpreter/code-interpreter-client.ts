@@ -32,6 +32,18 @@ export const DEFAULT_TIMEOUT = 900;
 /** Default path; currently only upload/download under this path is supported. */
 export const DEFAULT_PATH = '/home/user';
 
+/**
+ * Languages accepted by the Code Interpreter data plane (`execute_code`).
+ *
+ * The sandbox runs Python and TypeScript. `javascript` is **not** accepted by
+ * the service (it rejects it with `Unsupported language: javascript`), even
+ * though Node.js 20 is available for {@link CodeInterpreter.executeCommand}.
+ */
+export const SUPPORTED_CODE_LANGUAGES = ['python', 'typescript'] as const;
+
+/** A language value accepted by {@link CodeInterpreter.executeCode}. */
+export type CodeLanguage = (typeof SUPPORTED_CODE_LANGUAGES)[number];
+
 const ENV_HUAWEICLOUD_SDK_CODE_INTERPRETER_API_KEY = 'HUAWEICLOUD_SDK_CODE_INTERPRETER_API_KEY';
 
 /** Default session name used by {@link codeSession}, same as Python. */
@@ -516,7 +528,9 @@ export class CodeInterpreter {
    * Execute code in the code interpreter.
    *
    * @param code The code to execute.
-   * @param language The programming language, default `"python"`.
+   * @param language The programming language: `"python"` (default) or
+   *   `"typescript"`. The sandbox executes TypeScript natively; `"javascript"`
+   *   is rejected by the service — see {@link SUPPORTED_CODE_LANGUAGES}.
    * @param clearContext Whether to clear context before execution, default `false`.
    * @returns Dictionary containing stdout, stderr, and exit_code information.
    */
@@ -525,9 +539,10 @@ export class CodeInterpreter {
     language = 'python',
     clearContext = false,
   ): Promise<Record<string, any>> {
-    const validLanguages = ['python'];
-    if (!validLanguages.includes(language)) {
-      throw new Error(`Invalid language. Supported languages are: ${validLanguages.join(', ')}`);
+    if (!SUPPORTED_CODE_LANGUAGES.includes(language as CodeLanguage)) {
+      throw new Error(
+        `Invalid language. Supported languages are: ${SUPPORTED_CODE_LANGUAGES.join(', ')}`,
+      );
     }
 
     logger.info(`Executing ${language} code`);

@@ -466,7 +466,7 @@ const result2 = await client.invoke('execute_code', {
 | 参数名 | 类型 | 描述 |
 | --- | --- | --- |
 |code |string| **Required**  要执行的代码|
-|language |string| 代码的语言，默认 "python"，当前支持 python, default: `"python"`|
+|language |string| 代码的语言，默认 `"python"`；服务端支持 `python`、`typescript`（见导出常量 `SUPPORTED_CODE_LANGUAGES`）。`javascript` 会被服务端拒绝|
 |clearContext |boolean| 是否在执行前清除上下文，默认 false, default: `false`|
 
 **返回值**
@@ -481,8 +481,14 @@ const result = await client.executeCode(`
     print(df.describe())
 `);
 
+// 执行 TypeScript 代码（沙箱原生支持，Node.js 20 也可通过 executeCommand 调用）
+const result2 = await client.executeCode(
+  'const nums: number[] = [1, 2, 3];\nconsole.log(nums.reduce((a, b) => a + b, 0));',
+  'typescript',
+);
+
 // 清除上下文
-const result2 = await client.executeCode('x = 10', 'python', true);
+const result3 = await client.executeCode('x = 10', 'python', true);
 ```
 
 #### 11. 在代码解释器中执行命令

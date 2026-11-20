@@ -30,11 +30,13 @@ import {
   BrowserSession,
   CodeInterpreter,
   CodeSession,
+  SUPPORTED_CODE_LANGUAGES,
   browserSession,
   codeSession,
   withBrowserSession,
   withCodeSession,
 } from './tools/index.js';
+import type { CodeLanguage } from './tools/index.js';
 
 export {
   AgentArtsRuntimeApp,
@@ -50,6 +52,7 @@ export {
   OAuth2Vendor,
   PingStatus,
   RequestContext,
+  SUPPORTED_CODE_LANGUAGES,
   __author__,
   __version__,
   browserSession,
@@ -61,4 +64,4 @@ export {
   withCodeSession,
 };
 
-export type { StsCredentials };
+export type { CodeLanguage, StsCredentials };

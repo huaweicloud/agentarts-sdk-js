@@ -15,5 +15,6 @@ export {
   withCodeSession,
   DEFAULT_PATH,
   DEFAULT_TIMEOUT,
+  SUPPORTED_CODE_LANGUAGES,
 } from './code-interpreter-client.js';
-export type { UploadFileSpec } from './code-interpreter-client.js';
+export type { CodeLanguage, UploadFileSpec } from './code-interpreter-client.js';

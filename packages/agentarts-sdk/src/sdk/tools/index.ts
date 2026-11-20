@@ -24,6 +24,7 @@ export {
   CodeSession,
   codeSession,
   withCodeSession,
+  SUPPORTED_CODE_LANGUAGES,
 } from './code_interpreter/index.js';
 export type { BrowserSessionOptions } from './browser/index.js';
-export type { UploadFileSpec } from './code_interpreter/index.js';
+export type { CodeLanguage, UploadFileSpec } from './code_interpreter/index.js';

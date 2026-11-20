@@ -198,6 +198,10 @@ agentarts destroy
 | `AGENTARTS_CODE_INTERPRETER_NAME` | agent_tools | Code Interpreter 名称（新增，默认占位符） |
 | `HUAWEICLOUD_SDK_AK` / `HUAWEICLOUD_SDK_SK` | CLI 命令 | 华为云访问密钥 |
 
+> `agent_tools` 额外支持目录下的 `.env`（`.env.example` 为模板）：Node 与 `tsx` 不会自动
+> 读取该文件，示例通过零依赖的 `load-env.ts` 加载；真实进程环境变量优先，空值行会被跳过。
+> 详见 [agent_tools/README.md](agent_tools/README.md#使用-env-文件本地开发推荐)。
+
 ## 类型检查
 
 `tsconfig.json` 通过 `paths` 把 `agentarts-sdk` 以及示例用到的子路径

@@ -49,6 +49,16 @@ describeSession('code interpreter session (RUN_BILLABLE tier)', () => {
       expect(typeof codeResult).toBe('object');
       expect(JSON.stringify(codeResult)).toContain('2');
 
+      // 1b. executeCode (typescript) — same session, native TS execution.
+      // Type annotations are rejected by the Python kernel, so a passing
+      // result proves the service really ran the TypeScript path.
+      const tsResult = await client.executeCode(
+        'const n: number = 41;\nconsole.log(n + 1);',
+        'typescript',
+      );
+      expect(typeof tsResult).toBe('object');
+      expect(JSON.stringify(tsResult)).toContain('42');
+
       // 2. executeCommand (shell)
       const commandResult = await client.executeCommand(`echo ${FILE_CONTENT}`);
       expect(typeof commandResult).toBe('object');

@@ -650,12 +650,28 @@ describe('TestCodeInterpreterClient', () => {
     });
   });
 
+  it('execute code with typescript', async () => {
+    const code = 'const x: number = 1;\nconsole.log(x + 1);';
+    const invokeSpy = spyInvoke();
+    markSession();
+
+    await client.executeCode(code, 'typescript', true);
+
+    expectInvoke(invokeSpy, 'execute_code', {
+      code,
+      language: 'typescript',
+      clear_context: true,
+    });
+  });
+
   it('execute code with invalid language', async () => {
     const code = "console.log('Hello, World!')";
     markSession();
-    const errorMessage = 'Invalid language. Supported languages are: python';
+    const errorMessage = 'Invalid language. Supported languages are: python, typescript';
 
+    // `javascript` is rejected by the service too, so it stays invalid here.
     await expect(client.executeCode(code, 'javascript')).rejects.toThrow(errorMessage);
+    await expect(client.executeCode(code, 'ruby')).rejects.toThrow(errorMessage);
   });
 
   it('execute command with valid command', async () => {
