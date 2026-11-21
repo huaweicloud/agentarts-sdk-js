@@ -548,8 +548,10 @@ describe('TestBrowserHttpClient', () => {
     expect(result).toEqual({ ok: true });
     expect(putSpy).toHaveBeenCalledTimes(1);
     expect(putSpy).toHaveBeenCalledWith('/v1/browsers/test-browser/save-profile', {
-      headers: { 'X-hw-Agentarts-Browser-Session-Id': 's-1' },
-      json: { profile_id: 'p-1' },
+      headers: {
+        'X-hw-Agentarts-Browser-Session-Id': 's-1',
+        'X-HW-AgentArts-Browser-Profile-Id': 'p-1',
+      },
     });
   });
 

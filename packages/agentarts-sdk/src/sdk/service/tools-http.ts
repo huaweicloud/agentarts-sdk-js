@@ -431,14 +431,13 @@ export class DataBrowserHttpClient extends BaseHTTPClient {
     const endpoint = `/v1/browsers/${browserName}/save-profile`;
     const headers: Record<string, string> = {
       'X-hw-Agentarts-Browser-Session-Id': sessionId,
+      'X-HW-AgentArts-Browser-Profile-Id': profileId,
     };
     if (apiKey != null) {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
-    const requestParams = { profile_id: profileId };
-
-    const response = await this.put(endpoint, { headers, json: requestParams });
+    const response = await this.put(endpoint, { headers });
     return _unwrap(response);
   }
 
