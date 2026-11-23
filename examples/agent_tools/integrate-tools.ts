@@ -19,7 +19,8 @@
  *   `OPENAI_API_KEY` / `OPENAI_BASE_URL` are accepted as fallbacks
  * - `OPENAI_MODEL_NAME`: model name (default: `DeepSeek-V3`)
  * - `HUAWEICLOUD_SDK_CODE_INTERPRETER_API_KEY`: Code Interpreter API Key
- * - `HUAWEICLOUD_SDK_REGION`: region of the Code Interpreter (default: `your_region`)
+ * - `HUAWEICLOUD_SDK_REGION`: region of the Code Interpreter
+ *   (falls back to the SDK default region when unset)
  * - `AGENTARTS_CODE_INTERPRETER_NAME`: Code Interpreter name
  *   (default: `your_code_interpreter_name`)
  *
@@ -117,7 +118,6 @@ export async function runCodeInSandbox(
     region,
     interpreterName,
     (client) => {
-      console.log('interpeterClint', client);
       return client.invoke(
         'execute_code',
         {
@@ -342,10 +342,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   console.log('');
   console.log('Required environment variables:');
   console.log('  - MODEL_API_KEY / BASE_URL: model credentials');
-  console.log('  - OPENAI_MODEL_NAME: Model name (default: DeepSeek-V3)');
+  console.log('  - OPENAI_MODEL_NAME: Model name');
   console.log('  - HUAWEICLOUD_SDK_CODE_INTERPRETER_API_KEY: Code Interpreter API Key');
-  console.log('  - HUAWEICLOUD_SDK_REGION: Region (default: your_region)');
+  console.log(
+    '  - HUAWEICLOUD_SDK_REGION: Region (falls back to the SDK default region when unset)',
+  );
   console.log('  - AGENTARTS_CODE_INTERPRETER_NAME: Code Interpreter name');
+  console.log('  - AGENTARTS_CODEINTERPRETER_DATA_ENDPOINT: Data Plane Endpoint');
   console.log('');
   console.log('Endpoints:');
   console.log('  - POST /invocations - Invoke the agent');

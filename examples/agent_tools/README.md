@@ -32,11 +32,11 @@ pnpm add @langchain/openai     # 本仓库未预装 @langchain/openai
 | `BASE_URL` | 模型 API Base URL（Python 示例变量名） | 否（或用 `OPENAI_BASE_URL`） |
 | `OPENAI_MODEL_NAME` | 模型名，默认 `DeepSeek-V3` | 否 |
 | `HUAWEICLOUD_SDK_CODE_INTERPRETER_API_KEY` | Code Interpreter API Key | 是 |
-| `HUAWEICLOUD_SDK_REGION` | Code Interpreter 所在区域，默认占位符 `your_region` | 是 |
+| `HUAWEICLOUD_SDK_REGION` | Code Interpreter 所在区域；未设置时走SDK默认区域 | 是 |
 | `AGENTARTS_CODEINTERPRETER_DATA_ENDPOINT` | Code Interpreter 数据面端点；SDK **不会**按 region 自动推导，缺失时请求 URL 会退化成相对路径并报 `Failed to parse URL` | 是 |
 | `AGENTARTS_CODE_INTERPRETER_NAME` | Code Interpreter 名称，默认占位符 `your_code_interpreter_name` | 是 |
 
-> 代码中的 `your_region` / `your_code_interpreter_name` 沿用 Python 示例的占位符，
+> 代码中的 `your_code_interpreter_name` 沿用 Python 示例的占位符，
 > 请通过上面两个环境变量传入真实值。
 
 ### 使用 `.env` 文件（本地开发推荐）
@@ -180,4 +180,4 @@ pnpm exec tsc -p tsconfig.json
 | 工具名 | `execute_python_tool` | `execute_code_tool`（多了 `language` 字段） |
 | 直通沙箱 | 无 | 额外支持 `{"code": "...", "language": "typescript"}`，跳过模型直接执行（新增能力，便于测试沙箱） |
 | 模型凭据 | 只读 `MODEL_API_KEY` / `BASE_URL` | 优先这两个变量，回退 `OPENAI_API_KEY` / `OPENAI_BASE_URL` |
-| Code Interpreter 区域/名称 | 硬编码 `"your_region"` / `"your_code_interpreter_name"` | 同默认值，可用 `HUAWEICLOUD_SDK_REGION` / `AGENTARTS_CODE_INTERPRETER_NAME` 覆盖 |
+| Code Interpreter 区域/名称 | 硬编码 `"your_region"` / `"your_code_interpreter_name"` | 区域未设置时走 SDK 默认值，同时两者均可用 `HUAWEICLOUD_SDK_REGION` / `AGENTARTS_CODE_INTERPRETER_NAME` 覆盖 |
