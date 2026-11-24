@@ -12,3 +12,5 @@ Thumbs.db
 package-lock.json
 
 .pnpm-store/
+/tsconfig.json
+/.vscode/settings.json

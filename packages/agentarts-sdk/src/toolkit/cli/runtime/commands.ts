@@ -20,6 +20,7 @@ import { createInvokeCommand } from './invoke.js';
 import { createStartSessionCommand } from './start-session.js';
 import { createStopSessionCommand } from './stop-session.js';
 import { createUploadFilesCommand } from './upload-files.js';
+import { registerResourceCommands } from './resources.js';
 
 /**
  * Build the `runtime` command group (Python `runtime_app`).
@@ -39,6 +40,7 @@ export function createRuntimeAppCommand(name = 'runtime'): Command {
   command.addCommand(createDownloadFilesCommand());
   command.addCommand(createStartSessionCommand());
   command.addCommand(createStopSessionCommand());
+  registerResourceCommands(command);
 
   // Python's typer group prints its help when no subcommand is given and exits
   // with code 0; commander errors with exit code 1, so print the help here.

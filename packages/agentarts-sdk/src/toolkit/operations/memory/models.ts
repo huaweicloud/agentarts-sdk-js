@@ -9,6 +9,17 @@
 /** A space/memory record as returned by the SDK (already camelCase). */
 export type MemoryRecordDict = Record<string, any>;
 
+/** Typed outcome shared by session, message and memory data-plane operations. */
+export class MemoryDataResult<T = unknown> {
+  success = false;
+  data?: T;
+  error: string | null = null;
+
+  constructor(init?: Partial<MemoryDataResult<T>>) {
+    Object.assign(this, init ?? {});
+  }
+}
+
 /** Result of a space operation (`SpaceResult`). */
 export class SpaceResult {
   success: boolean;

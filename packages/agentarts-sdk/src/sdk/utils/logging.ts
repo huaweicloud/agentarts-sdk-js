@@ -3,6 +3,7 @@
  *
  * Mirrors `agentarts/sdk/utils/logging.py`: a lightweight logger factory
  * with levels controlled by the `AGENTARTS_LOG_LEVEL` environment variable.
+ * Diagnostics use stderr so stdout can carry application data / CLI JSON.
  */
 
 export type LogLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
@@ -68,11 +69,11 @@ class ConsoleLogger implements Logger {
   constructor(private readonly name: string) {}
 
   debug(...args: unknown[]): void {
-    if (isEnabled('DEBUG')) console.debug(formatMessage(`[${this.name}]`, args));
+    if (isEnabled('DEBUG')) console.error(formatMessage(`[${this.name}]`, args));
   }
 
   info(...args: unknown[]): void {
-    if (isEnabled('INFO')) console.info(formatMessage(`[${this.name}]`, args));
+    if (isEnabled('INFO')) console.error(formatMessage(`[${this.name}]`, args));
   }
 
   warning(...args: unknown[]): void {

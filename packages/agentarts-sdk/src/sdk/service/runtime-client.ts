@@ -212,27 +212,13 @@ export function uploadContentType(
     : 'application/octet-stream';
 }
 
-/**
- * `BaseHTTPClient` subclass that exposes the request pipeline this module
- * needs: forced streaming responses and raw binary request bodies.
- *
- * It also puts query parameters on the wire. `BaseHTTPClient` only forwards
- * `params` to the signer (both the SDK and V11 canonical requests derive the
- * query string from them), so without this the URL would be sent without any
- * query string at all.
- */
+/** Runtime HTTP client with streaming and binary transport support. */
 class RuntimeHTTPClient extends BaseHTTPClient {
   private _tlsDispatcher?: Agent;
 
-  /**
-   * Execute a request with `options.params` also serialized into the URL.
-   *
-   * Query values are RFC 3986 encoded, which is exactly how the signers encode
-   * them for the canonical request, so the signature stays valid.
-   */
+  /** BaseHTTPClient serializes and signs params; append them only once. */
   async send(method: string, url: string, options: RequestOptions = {}): Promise<RequestResult> {
-    const { params, ...rest } = options;
-    return this._request(method, _appendQuery(url, params), { ...rest, params });
+    return this._request(method, url, options);
   }
 
   /**

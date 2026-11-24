@@ -715,3 +715,15 @@ describe('TestStreamDownloadResult', () => {
     expect(result._rawResponse).toBeNull();
   });
 });
+
+describe('Runtime query serialization regression', () => {
+  it('sends each pagination parameter exactly once through the real request pipeline', async () => {
+    const client = new RuntimeClient({controlEndpoint:'https://runtime.example.com', dataEndpoint:'https://runtime.example.com'});
+    const fetchMock = stubFetch(new Response(JSON.stringify({items:[]}), {headers:{'content-type':'application/json'}}));
+    vi.spyOn((client as any)._controlClient, '_signRequest').mockImplementation(async (_method, _url, options) => options);
+    await client.getAgents({limit:10,offset:1});
+    const url = new URL(String((fetchMock.mock.calls as any[][])[0][0]));
+    expect(url.searchParams.getAll('limit')).toEqual(['10']);
+    expect(url.searchParams.getAll('offset')).toEqual(['1']);
+  });
+});

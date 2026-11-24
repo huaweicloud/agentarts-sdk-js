@@ -75,6 +75,7 @@ beforeEach(() => {
   vi.spyOn(toolkitConsole, 'printPanel').mockImplementation(() => undefined);
 
   gatewayMocks.instance = {
+    close: vi.fn(),
     createGateway: vi.fn().mockResolvedValue(okResult({ gateway_id: 'test-id' })),
     updateGateway: vi.fn().mockResolvedValue(okResult({ gateway_id: 'test-id' })),
     deleteGateway: vi.fn().mockResolvedValue(okResult()),
@@ -177,7 +178,7 @@ describe('create', () => {
       '{"invalid json',
     ]);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Invalid JSON format');
   });
 
@@ -188,7 +189,7 @@ describe('create', () => {
 
     const result = await runGateway(['create', '--name', 'test-gateway']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Error creating gateway');
   });
 
@@ -197,7 +198,7 @@ describe('create', () => {
 
     const result = await runGateway(['create', '--name', 'test-gateway']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Unexpected error');
   });
 
@@ -231,7 +232,7 @@ describe('update', () => {
       '{"invalid json',
     ]);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Invalid JSON format');
   });
 
@@ -240,7 +241,7 @@ describe('update', () => {
 
     const result = await runGateway(['update', 'test-id', '--description', 'Updated']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Unexpected error');
   });
 });
@@ -272,7 +273,7 @@ describe('delete', () => {
 
     const result = await runGateway(['delete', 'test-id']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Unexpected error');
   });
 });
@@ -353,28 +354,28 @@ describe('list', () => {
   it('rejects a negative offset', async () => {
     const result = await runGateway(['list', '--offset', '-1']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Offset must be greater than or equal to 0');
   });
 
   it('rejects a limit of zero', async () => {
     const result = await runGateway(['list', '--limit', '0']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Limit must be greater than 0');
   });
 
   it('rejects an offset above the maximum', async () => {
     const result = await runGateway(['list', '--offset', '100001']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Offset must be less than or equal to 100000');
   });
 
   it('rejects a limit above the maximum', async () => {
     const result = await runGateway(['list', '--limit', '101']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Limit must be less than or equal to 100');
   });
 
@@ -383,7 +384,7 @@ describe('list', () => {
 
     const result = await runGateway(['list']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Unexpected error');
   });
 });
@@ -410,7 +411,7 @@ describe('create-target', () => {
       '{"invalid json',
     ]);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Invalid JSON format');
   });
 
@@ -424,7 +425,7 @@ describe('create-target', () => {
       '{"type": "http"}',
     ]);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Unexpected error');
   });
 });
@@ -453,7 +454,7 @@ describe('update-target', () => {
       '{"invalid json',
     ]);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Invalid JSON format');
   });
 
@@ -468,7 +469,7 @@ describe('update-target', () => {
       'updated-target',
     ]);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Unexpected error');
   });
 });
@@ -500,7 +501,7 @@ describe('delete-target', () => {
 
     const result = await runGateway(['delete-target', 'test-gateway-id', 'test-target-id']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Unexpected error');
   });
 });
@@ -519,7 +520,7 @@ describe('get-target', () => {
 
     const result = await runGateway(['get-target', 'test-gateway-id', 'test-target-id']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Unexpected error');
   });
 });
@@ -536,14 +537,14 @@ describe('list-targets', () => {
   it('rejects an offset above the maximum', async () => {
     const result = await runGateway(['list-targets', 'test-gateway-id', '--offset', '100001']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Offset must be less than or equal to 100000');
   });
 
   it('rejects a limit above the maximum', async () => {
     const result = await runGateway(['list-targets', 'test-gateway-id', '--limit', '101']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Limit must be less than or equal to 100');
   });
 
@@ -552,7 +553,28 @@ describe('list-targets', () => {
 
     const result = await runGateway(['list-targets', 'test-gateway-id']);
 
-    expect(process.exitCode ?? 0).toBe(0);
+    expect(process.exitCode ?? 0).toBe(1);
     expect(result).toContain('Unexpected error');
   });
+});
+
+describe('Gateway validation regression', () => {
+  it.each(['NaN', 'Infinity', '1.5', '9007199254740992'])(
+    'rejects invalid numeric pagination %s before SDK calls',
+    async (limit) => {
+      await runGateway(['list', '--limit', limit]);
+      expect(process.exitCode).toBe(1);
+      expect(gatewayMocks.instance['listGateways']).not.toHaveBeenCalled();
+      process.exitCode = 0;
+    },
+  );
+  it.each(['[]', 'null', 'true', '"text"'])(
+    'rejects a non-object configuration %s',
+    async (configuration) => {
+      await runGateway(['create', '--protocol-configuration', configuration]);
+      expect(process.exitCode).toBe(1);
+      expect(gatewayMocks.instance['createGateway']).not.toHaveBeenCalled();
+      process.exitCode = 0;
+    },
+  );
 });

@@ -194,3 +194,17 @@ describe('TestLoggingIntegration', () => {
     expect(lines.join('\n')).toContain('Info message');
   });
 });
+
+describe('SDK diagnostics use stderr', () => {
+  it('keeps INFO and DEBUG messages off stdout', () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    setupLogging('DEBUG');
+    getLogger('stream-check').info('info message');
+    getLogger('stream-check').debug('debug message');
+    expect(info).not.toHaveBeenCalled();
+    expect(debug).not.toHaveBeenCalled();
+    expect(stderr).toHaveBeenCalledTimes(2);
+  });
+});

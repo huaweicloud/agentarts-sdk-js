@@ -1,12 +1,13 @@
 /**
- * Memory CLI commands - Space CRUD operations.
+ * Memory CLI commands - Space management, data-plane operations and plugins.
  *
  * Ported from `agentarts/toolkit/cli/memory/commands.py` (Python `typer`).
- * The command tree, option names/short flags, help texts and output formats are
- * kept identical; `rich` output uses the toolkit console layer.
+ * Existing Space commands retain the Python option names and output formats;
+ * data-plane commands additionally expose the MemoryClient business methods.
  */
 
-import { Command, InvalidArgumentError } from 'commander';
+import { Command, InvalidArgumentError, Option } from 'commander';
+import { registerMemoryDataCommands } from './data-commands.js';
 
 import {
   createSpace,
@@ -22,12 +23,36 @@ import { confirm } from '../../plugins/memory/installer/utils.js';
 /** Shared `Console` (rich `Console()` counterpart). */
 export const console = new Console();
 
+/** Stop a failed command before any SDK call or success output. */
+function reportError(message: string): undefined {
+  process.exitCode = 1;
+  echoError(message);
+  return undefined;
+}
+
 /** Integer option parser (`typer` int coercion). */
 function intArg(value: string): number {
-  const parsed = Number.parseInt(value, 10);
-  if (Number.isNaN(parsed)) {
+  const parsed = Number(value);
+  if (!/^-?\d+$/.test(value) || !Number.isSafeInteger(parsed)) {
     throw new InvalidArgumentError('Not a valid integer.');
   }
+  return parsed;
+}
+
+function booleanArg(value: string): boolean {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new InvalidArgumentError('Expected true or false.');
+}
+function objectArrayArg(value: string): Record<string, any>[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new InvalidArgumentError('Expected a JSON object array.');
+  }
+  if (!Array.isArray(parsed) || parsed.some((v) => !v || typeof v !== 'object' || Array.isArray(v)))
+    throw new InvalidArgumentError('Expected a JSON object array.');
   return parsed;
 }
 
@@ -68,7 +93,7 @@ function parseStrategies(strategies: string | undefined): string[] | null {
 }
 
 /** Parse the `--tags` option (comma-separated `key=value` pairs). */
-function parseTags(tags: string | undefined): TagList {
+function parseTags(tags: string | undefined): TagList | undefined {
   if (!tags) {
     return null;
   }
@@ -77,7 +102,7 @@ function parseTags(tags: string | undefined): TagList {
     tagsList = [];
     for (const tagPair of tags.split(',')) {
       if (!tagPair.includes('=')) {
-        echoError("Invalid tag format, use 'key=value' pairs separated by commas");
+        return reportError("Invalid tag format, use 'key=value' pairs separated by commas");
       }
       const separator = tagPair.indexOf('=');
       if (separator < 0) {
@@ -90,7 +115,7 @@ function parseTags(tags: string | undefined): TagList {
       });
     }
   } catch {
-    echoError("Invalid tags format, use 'key1=value1,key2=value2'");
+    return reportError("Invalid tags format, use 'key1=value1,key2=value2'");
   }
   return tagsList;
 }
@@ -125,6 +150,7 @@ interface CommonOptions {
 
 /** Options of the `create` command. */
 interface CreateOptions extends CommonOptions {
+  customStrategies?: Record<string, any>[];
   ttl: number;
   description?: string;
   extractIdle?: number;
@@ -144,19 +170,23 @@ interface CreateOptions extends CommonOptions {
  * Uses AK/SK authentication via environment variables:
  * `HUAWEICLOUD_SDK_AK` (access key) and `HUAWEICLOUD_SDK_SK` (secret key).
  */
-export async function createSpaceCmd(name: string, options: CreateOptions, command: Command): Promise<void> {
+export async function createSpaceCmd(
+  name: string,
+  options: CreateOptions,
+  command: Command,
+): Promise<void> {
   // Input validation.
   if (!name || typeof name !== 'string' || !name.trim()) {
-    echoError('Space name cannot be empty');
+    return reportError('Space name cannot be empty');
   }
 
   if (name.trim().length > 128) {
-    echoError('Space name cannot exceed 128 characters');
+    return reportError('Space name cannot exceed 128 characters');
   }
 
   // Validate TTL values.
   if (options.ttl <= 0 || options.ttl > 8760) {
-    echoError('Message TTL must be between 1 and 8760 hours');
+    return reportError('Message TTL must be between 1 and 8760 hours');
   }
 
   // Validate the VPC and subnet combination.
@@ -164,19 +194,20 @@ export async function createSpaceCmd(name: string, options: CreateOptions, comma
     (options.vpcId === undefined && options.subnetId !== undefined) ||
     (options.vpcId !== undefined && options.subnetId === undefined)
   ) {
-    echoError('Both VPC ID and subnet ID must be provided for private access');
+    return reportError('Both VPC ID and subnet ID must be provided for private access');
   }
 
   if (options.vpcId && !options.vpcId.trim()) {
-    echoError('VPC ID cannot be empty if provided');
+    return reportError('VPC ID cannot be empty if provided');
   }
 
   if (options.subnetId && !options.subnetId.trim()) {
-    echoError('Subnet ID cannot be empty if provided');
+    return reportError('Subnet ID cannot be empty if provided');
   }
 
   const memoryStrategiesList = parseStrategies(options.strategies);
   const tagsList = parseTags(options.tags);
+  if (tagsList === undefined) return;
   const enablePublic = resolvePublicFlag(command);
 
   const result = await createSpace(name, {
@@ -186,6 +217,7 @@ export async function createSpaceCmd(name: string, options: CreateOptions, comma
     memoryExtractMaxTokens: options.extractTokens ?? null,
     memoryExtractMaxMessages: options.extractMessages ?? null,
     memoryStrategiesBuiltin: memoryStrategiesList,
+    memoryStrategiesCustomized: options.customStrategies,
     tags: tagsList,
     publicAccessEnable: enablePublic ?? true,
     privateVpcId: options.vpcId ? options.vpcId.trim() : null,
@@ -195,14 +227,14 @@ export async function createSpaceCmd(name: string, options: CreateOptions, comma
   });
 
   if (!result.success) {
-    echoError(`Failed to create space: ${result.error}`);
+    return reportError(`Failed to create space: ${result.error}`);
   }
 
   if (options.output === 'json') {
     try {
       printJson(result.space);
     } catch (error) {
-      echoError(`Failed to serialize space data to JSON: ${_errorMessage(error)}`);
+      return reportError(`Failed to serialize space data to JSON: ${_errorMessage(error)}`);
     }
   } else {
     echoSuccess('Space created successfully!');
@@ -226,7 +258,7 @@ interface GetOptions extends CommonOptions {
 export async function getSpaceCmd(spaceId: string, options: GetOptions): Promise<void> {
   // Input validation.
   if (!spaceId || typeof spaceId !== 'string' || !spaceId.trim()) {
-    echoError('Space ID cannot be empty');
+    return reportError('Space ID cannot be empty');
   }
 
   // Clean up the space ID for display.
@@ -237,14 +269,14 @@ export async function getSpaceCmd(spaceId: string, options: GetOptions): Promise
   });
 
   if (!result.success) {
-    echoError(`Failed to get space: ${result.error}`);
+    return reportError(`Failed to get space: ${result.error}`);
   }
 
   if (options.output === 'json') {
     try {
       printJson(result.space);
     } catch (error) {
-      echoError(`Failed to serialize space data to JSON: ${_errorMessage(error)}`);
+      return reportError(`Failed to serialize space data to JSON: ${_errorMessage(error)}`);
     }
   } else {
     const space = result.space ?? {};
@@ -275,15 +307,15 @@ interface ListOptions extends CommonOptions {
 export async function listSpacesCmd(options: ListOptions): Promise<void> {
   // Validate pagination parameters.
   if (options.limit <= 0) {
-    echoError('Limit must be greater than 0');
+    return reportError('Limit must be greater than 0');
   }
 
   if (options.limit > 100) {
-    echoError('Limit cannot exceed 100');
+    return reportError('Limit cannot exceed 100');
   }
 
   if (options.offset < 0) {
-    echoError('Offset must be greater than or equal to 0');
+    return reportError('Offset must be greater than or equal to 0');
   }
 
   const result = await listSpaces({
@@ -294,14 +326,14 @@ export async function listSpacesCmd(options: ListOptions): Promise<void> {
   });
 
   if (!result.success) {
-    echoError(`Failed to list spaces: ${result.error}`);
+    return reportError(`Failed to list spaces: ${result.error}`);
   }
 
   if (options.output === 'json') {
     try {
       printJson({ spaces: result.spaces ?? [], total: result.total ?? 0 });
     } catch (error) {
-      echoError(`Failed to serialize spaces data to JSON: ${_errorMessage(error)}`);
+      return reportError(`Failed to serialize spaces data to JSON: ${_errorMessage(error)}`);
     }
   } else {
     console.print(`Spaces (Total: ${result.total})`);
@@ -318,6 +350,8 @@ export async function listSpacesCmd(options: ListOptions): Promise<void> {
 
 /** Options of the `update` command. */
 interface UpdateOptions extends CommonOptions {
+  name?: string;
+  extractEnabled?: boolean;
   ttl?: number;
   description?: string;
   extractIdle?: number;
@@ -325,10 +359,6 @@ interface UpdateOptions extends CommonOptions {
   extractMessages?: number;
   strategies?: string;
   tags?: string;
-  public?: boolean;
-  private?: boolean;
-  vpcId?: string;
-  subnetId?: string;
   region?: string;
 }
 
@@ -344,7 +374,7 @@ export async function updateSpaceCmd(
 ): Promise<void> {
   // Input validation.
   if (!spaceId || typeof spaceId !== 'string' || !spaceId.trim()) {
-    echoError('Space ID cannot be empty');
+    return reportError('Space ID cannot be empty');
   }
 
   // Clean up the space ID.
@@ -352,22 +382,19 @@ export async function updateSpaceCmd(
 
   // Validate TTL if provided.
   if (options.ttl !== undefined && (options.ttl <= 0 || options.ttl > 8760)) {
-    echoError('Message TTL must be between 1 and 8760 hours');
+    return reportError('Message TTL must be between 1 and 8760 hours');
   }
 
-  // Validate the VPC and subnet combination.
-  if (
-    (options.vpcId === undefined && options.subnetId !== undefined) ||
-    (options.vpcId !== undefined && options.subnetId === undefined)
-  ) {
-    echoError('Both VPC ID and subnet ID must be provided for private access');
-  }
+  if (options.name !== undefined && (!options.name.trim() || options.name.length > 128))
+    return reportError('Space name must contain 1-128 characters');
 
   const memoryStrategiesList = parseStrategies(options.strategies);
   const tagsList = parseTags(options.tags);
-  const enablePublic = resolvePublicFlag(command);
+  if (tagsList === undefined) return;
 
   const result = await updateSpace(cleanSpaceId, {
+    name: options.name,
+    enableMemoryExtract: options.extractEnabled,
     messageTtlHours: options.ttl ?? null,
     description: options.description ?? null,
     memoryExtractIdleSeconds: options.extractIdle ?? null,
@@ -380,14 +407,14 @@ export async function updateSpaceCmd(
   });
 
   if (!result.success) {
-    echoError(`Failed to update space: ${result.error}`);
+    return reportError(`Failed to update space: ${result.error}`);
   }
 
   if (options.output === 'json') {
     try {
       printJson({ space_id: cleanSpaceId, space: result.space ?? null });
     } catch (error) {
-      echoError(`Failed to serialize space data to JSON: ${_errorMessage(error)}`);
+      return reportError(`Failed to serialize space data to JSON: ${_errorMessage(error)}`);
     }
   } else {
     echoSuccess('Space updated successfully!');
@@ -409,9 +436,6 @@ export async function updateSpaceCmd(
       const updates: string[] = [];
       if (options.ttl !== undefined) {
         updates.push(`TTL set to ${messageTtl} hours`);
-      }
-      if (enablePublic !== undefined) {
-        updates.push(`Public access ${enablePublic ? 'enabled' : 'disabled'}`);
       }
 
       if (updates.length > 0) {
@@ -437,7 +461,8 @@ interface DeleteOptions extends CommonOptions {
 export async function deleteSpaceCmd(spaceId: string, options: DeleteOptions): Promise<number> {
   // Validate the space ID.
   if (!spaceId || typeof spaceId !== 'string' || !spaceId.trim()) {
-    echoError('Space ID cannot be empty');
+    reportError('Space ID cannot be empty');
+    return 1;
   }
 
   // Clean up the space ID for display.
@@ -457,7 +482,8 @@ export async function deleteSpaceCmd(spaceId: string, options: DeleteOptions): P
   });
 
   if (!result.success) {
-    echoError(`Failed to delete space: ${result.error}`);
+    reportError(`Failed to delete space: ${result.error}`);
+    return 1;
   }
 
   echoSuccess('Space deleted successfully!');
@@ -481,7 +507,7 @@ interface StatusOptions extends CommonOptions {
 export async function spaceStatusCmd(spaceId: string, options: StatusOptions): Promise<void> {
   // Input validation.
   if (!spaceId || typeof spaceId !== 'string' || !spaceId.trim()) {
-    echoError('Space ID cannot be empty');
+    return reportError('Space ID cannot be empty');
   }
 
   // Clean up the space ID for display.
@@ -493,7 +519,7 @@ export async function spaceStatusCmd(spaceId: string, options: StatusOptions): P
   });
 
   if (!result.success) {
-    echoError(`Failed to get space status: ${result.error}`);
+    return reportError(`Failed to get space status: ${result.error}`);
   }
 
   // Format the output based on the user preference.
@@ -541,7 +567,7 @@ export async function spaceStatusCmd(spaceId: string, options: StatusOptions): P
 
       printJson(outputData);
     } catch (error) {
-      echoError(`Failed to serialize space status to JSON: ${_errorMessage(error)}`);
+      return reportError(`Failed to serialize space status to JSON: ${_errorMessage(error)}`);
     }
   } else {
     // Table format - focus on status.
@@ -618,11 +644,11 @@ interface InstallRegisterOptions {
 /**
  * Build the `memory` command tree.
  *
- * `agentarts memory <create|get|list|update|delete|status|install|uninstall>`.
+ * Includes Space CRUD, session/message/memory operations and plugin installation.
  */
 export function buildMemoryCommand(): Command {
   const memoryApp = new Command('memory')
-    .description('Memory Space management commands')
+    .description('Memory Space, session, message, memory record and plugin management')
     .allowExcessArguments(true);
 
   memoryApp
@@ -640,13 +666,22 @@ export function buildMemoryCommand(): Command {
     .option('--extract-tokens <tokens>', 'Memory extraction max tokens', intArg)
     .option('--extract-messages <messages>', 'Memory extraction max messages', intArg)
     .option('-s, --strategies <strategies>', 'Built-in memory strategies (comma-separated)')
+    .option(
+      '--custom-strategies <json>',
+      'Custom memory strategies (JSON object array)',
+      objectArrayArg,
+    )
     .option('--tags <tags>', "Tags in format 'key1=value1,key2=value2'")
     .option('--public', 'Enable public access (default)')
     .option('--private', 'Disable public access')
     .option('--vpc-id <vpcId>', 'Private VPC ID (requires --subnet-id)')
     .option('--subnet-id <subnetId>', 'Private subnet ID (requires --vpc-id)')
     .option('-r, --region <region>', 'Region name (default: cn-north-4)')
-    .option('-o, --output <format>', 'Output format: table, json', 'table')
+    .addOption(
+      new Option('-o, --output <format>', 'Output format')
+        .choices(['table', 'json'])
+        .default('table'),
+    )
     .option('-k, --skip-ssl-verification', 'Skip SSL certificate verification')
     .action(async (name: string, options: Record<string, any>, command: Command) => {
       await createSpaceCmd(name, normalizeOptions(options) as CreateOptions, command);
@@ -657,7 +692,11 @@ export function buildMemoryCommand(): Command {
     .description('Get Space details.\n\nUses AK/SK authentication via environment variables.')
     .argument('<spaceId>', 'Space ID')
     .option('-r, --region <region>', 'Region name (default: cn-north-4)')
-    .option('-o, --output <format>', 'Output format: table, json', 'table')
+    .addOption(
+      new Option('-o, --output <format>', 'Output format')
+        .choices(['table', 'json'])
+        .default('table'),
+    )
     .option('--skip-ssl-verification', 'Skip SSL certificate verification')
     .action(async (spaceId: string, options: Record<string, any>) => {
       await getSpaceCmd(spaceId, normalizeOptions(options) as GetOptions);
@@ -669,7 +708,11 @@ export function buildMemoryCommand(): Command {
     .option('-l, --limit <limit>', 'Maximum number of spaces', intArg, 20)
     .option('--offset <offset>', 'Offset for pagination', intArg, 0)
     .option('-r, --region <region>', 'Region name (default: cn-north-4)')
-    .option('-o, --output <format>', 'Output format: table, json', 'table')
+    .addOption(
+      new Option('-o, --output <format>', 'Output format')
+        .choices(['table', 'json'])
+        .default('table'),
+    )
     .option('--skip-ssl-verification', 'Skip SSL certificate verification')
     .action(async (options: Record<string, any>) => {
       await listSpacesCmd(normalizeOptions(options) as ListOptions);
@@ -679,6 +722,8 @@ export function buildMemoryCommand(): Command {
     .command('update')
     .description('Update a Space.\n\nUses AK/SK authentication via environment variables.')
     .argument('<spaceId>', 'Space ID')
+    .option('-n, --name <name>', 'New space name')
+    .option('--extract-enabled <boolean>', 'Enable memory extraction (true/false)', booleanArg)
     .option('-t, --ttl <hours>', 'Message TTL in hours', intArg)
     .option('-d, --description <description>', 'Space description')
     .option('--extract-idle <seconds>', 'Memory extraction idle time in seconds', intArg)
@@ -686,12 +731,12 @@ export function buildMemoryCommand(): Command {
     .option('--extract-messages <messages>', 'Memory extraction max messages', intArg)
     .option('-s, --strategies <strategies>', 'Built-in memory strategies (comma-separated)')
     .option('--tags <tags>', "Tags in format 'key1=value1,key2=value2'")
-    .option('--public', 'Enable public access')
-    .option('--private', 'Disable public access')
-    .option('--vpc-id <vpcId>', 'Private VPC ID (requires --subnet-id)')
-    .option('--subnet-id <subnetId>', 'Private subnet ID (requires --vpc-id)')
     .option('-r, --region <region>', 'Region name (default: cn-north-4)')
-    .option('-o, --output <format>', 'Output format: table, json', 'table')
+    .addOption(
+      new Option('-o, --output <format>', 'Output format')
+        .choices(['table', 'json'])
+        .default('table'),
+    )
     .option('--skip-ssl-verification', 'Skip SSL certificate verification')
     .action(async (spaceId: string, options: Record<string, any>, command: Command) => {
       await updateSpaceCmd(spaceId, normalizeOptions(options) as UpdateOptions, command);
@@ -723,7 +768,11 @@ export function buildMemoryCommand(): Command {
     )
     .argument('<spaceId>', 'Space ID to check status')
     .option('-r, --region <region>', 'Region name (default: cn-north-4)')
-    .option('-o, --output <format>', 'Output format: table, json', 'table')
+    .addOption(
+      new Option('-o, --output <format>', 'Output format')
+        .choices(['table', 'json'])
+        .default('table'),
+    )
     .option('--skip-ssl-verification', 'Skip SSL certificate verification')
     .action(async (spaceId: string, options: Record<string, any>) => {
       await spaceStatusCmd(spaceId, normalizeOptions(options) as StatusOptions);
@@ -734,10 +783,7 @@ export function buildMemoryCommand(): Command {
   memoryApp
     .command('install')
     .description('Install the AgentArts Memory plugin for a supported AI agent.')
-    .argument(
-      '[target]',
-      `Platform (${VALID_TARGETS.join(', ')}). Omit to detect.`,
-    )
+    .argument('[target]', `Platform (${VALID_TARGETS.join(', ')}). Omit to detect.`)
     .option('--global', 'Install to user-level config.')
     .option('-y, --yes', 'Auto-confirm all prompts.')
     .action(async (target: string | undefined, options: InstallRegisterOptions) => {
@@ -768,6 +814,7 @@ export function buildMemoryCommand(): Command {
       }
     });
 
+  registerMemoryDataCommands(memoryApp);
   return memoryApp;
 }
 

@@ -288,11 +288,19 @@ agentarts destroy
 | `agentarts destroy`     | 删除已部署的 Agent                             |
 | `agentarts gateway`     | 管理网关                                       |
 | `agentarts memory`      | 管理 Memory Space 与记忆插件                   |
-| `agentarts runtime`     | 运行时数据面操作（会话、文件传输、命令执行）   |
+| `agentarts runtime`     | 运行时资源、端点、会话、调用与文件操作 |
+| `agentarts identity` | 工作负载身份、凭据提供商和资源令牌 |
+| `agentarts browser` | 浏览器资源、Profile、会话与自动化 |
+| `agentarts code-interpreter` | 代码沙箱资源、会话、代码执行与文件操作 |
+| `agentarts iam` | IAM 委托和策略管理 |
+| `agentarts swr` | 镜像组织、仓库和登录凭据 |
+
+完整的 SDK 方法、Operations 和 CLI 逐项对照及参数用法见
+[SDK 与 CLI 覆盖说明](docs/cn/toolkit_user_guide/sdk_cli_coverage.md)。
 
 ### Memory Commands
 
-`agentarts memory` 提供两组子命令。
+`agentarts memory` 提供空间管理、数据面操作和插件管理三组子命令。
 
 **Space Management**（需要 AK/SK 认证）：
 
@@ -304,6 +312,48 @@ agentarts destroy
 | `agentarts memory update`   | 更新 Space                                     |
 | `agentarts memory delete`   | 删除 Space                                     |
 | `agentarts memory status`   | 检查 Space 状态与健康度                        |
+
+**Session / Message / Memory Data Plane**（需要环境变量 `HUAWEICLOUD_SDK_MEMORY_API_KEY`）：
+
+| Command | SDK Method | Description |
+| --- | --- | --- |
+| `agentarts memory create-session <spaceId>` | `createMemorySession` | 创建会话 |
+| `agentarts memory list-sessions <spaceId>` | `listSessions` | 查询会话列表 |
+| `agentarts memory get-session <spaceId> <sessionId>` | `getSession` | 查询会话详情 |
+| `agentarts memory delete-session <spaceId> <sessionId>` | `deleteSession` | 删除会话 |
+| `agentarts memory add-messages <spaceId> <sessionId>` | `addMessages` | 写入消息 |
+| `agentarts memory list-messages <spaceId>` | `listMessages` | 查询消息列表，可指定 `--session-id` |
+| `agentarts memory get-message <spaceId> <sessionId> <messageId>` | `getMessage` | 查询消息详情 |
+| `agentarts memory last-messages <spaceId> <sessionId>` | `getLastKMessages` | 查询最近消息，支持 `--k` |
+| `agentarts memory search-memories <spaceId>` | `searchMemories` | 语义搜索，可指定 `--query` 或 `--filters.query` |
+| `agentarts memory list-memories <spaceId>` | `listMemories` | 查询记忆列表 |
+| `agentarts memory get-memory <spaceId> <memoryId>` | `getMemory` | 查询记忆详情 |
+| `agentarts memory create-memory <spaceId>` | `createMemory` | 直接创建记忆，使用 `--request JSON` |
+| `agentarts memory update-memory <spaceId> <memoryId>` | `updateMemory` | 更新记忆，使用 `--request JSON` |
+| `agentarts memory delete-memory <spaceId> <memoryId>` | `deleteMemory` | 删除记忆 |
+
+数据面命令默认输出 JSON，支持 `-r/--region`、`-k/--skip-ssl-verification` 和
+`-o json`；区域默认从 SDK 环境变量读取。列表支持 `--limit`、`--offset`。
+删除前会确认，脚本中可显式使用 `--force`。控制面的 AK/SK 不能代替数据面 API Key。
+
+空间和数据面命令均采用 `CLI → toolkit/operations/memory → SDK` 分层：CLI 解析参数、
+确认操作并显示结果；操作层封装 SDK 调用与结果，数据面操作还统一管理连接清理。
+
+```bash
+# 在仓库根目录运行，先执行 pnpm build。
+pnpm cli memory create-session SPACE_ID --actor-id user-001
+pnpm cli memory add-messages SPACE_ID SESSION_ID \
+  --messages '[{"role":"user","content":"我喜欢步行"}]'
+pnpm cli memory last-messages SPACE_ID SESSION_ID --k 10
+pnpm cli memory search-memories SPACE_ID --query '出行偏好' \
+  --filters '{"actor_id":"user-001","top_k":3}'
+```
+
+`--messages` 使用 SDK 消息字段：文本为 `role/content`，工具调用为
+`type: "tool_call"` 加 `id/name/arguments`，工具结果为 `type: "tool_result"`
+加 `toolCallId/content`。支持 `--timestamp`、`--idempotency-key`、`--force-extract`。
+`search-memories` 和 `list-memories` 的 `--filters` 使用 API 的 snake_case 字段，
+例如 `actor_id`、`session_id`、`strategy_type`；完整参数见各命令 `--help`。
 
 **Plugin Installation & Local Server:**
 

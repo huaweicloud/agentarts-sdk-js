@@ -9,11 +9,7 @@
  * CLI in Python and are re-exported here as well for convenience.
  */
 
-export {
-  DeployMode,
-  createAgentartsRuntime,
-  deployProject,
-} from './deploy.js';
+export { DeployMode, createAgentartsRuntime, deployProject } from './deploy.js';
 export type { CreateAgentartsRuntimeOptions, DeployProjectOptions } from './deploy.js';
 
 export { runDevServer } from './dev.js';
@@ -64,7 +60,12 @@ export type { DestroyAgentOptions } from './destroy.js';
 export { downloadRuntimeFiles } from './download-files.js';
 export type { DownloadRuntimeFilesOptions } from './download-files.js';
 
-export { DEFAULT_TIMEOUT, MAX_TIMEOUT, buildCommandArray, execRuntimeCommand } from './exec-command.js';
+export {
+  DEFAULT_TIMEOUT,
+  MAX_TIMEOUT,
+  buildCommandArray,
+  execRuntimeCommand,
+} from './exec-command.js';
 export type { ExecRuntimeCommandOptions } from './exec-command.js';
 
 export { stopRuntimeSession } from './stop-session.js';
@@ -77,3 +78,18 @@ export {
   uploadRuntimeFiles,
 } from './upload-files.js';
 export type { UploadRuntimeFilesOptions } from './upload-files.js';
+
+export {
+  createAgent,
+  updateAgent,
+  createOrUpdateAgent,
+  getAgents,
+  findAgentByName,
+  findAgentById,
+  deleteAgentByName,
+  createAgentEndpoint,
+  updateAgentEndpoint,
+  deleteAgentEndpoint,
+  findAgentEndpoint,
+  pingAgent,
+} from './resources.js';

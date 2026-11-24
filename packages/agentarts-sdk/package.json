@@ -142,7 +142,51 @@
       "types": "./dist/toolkit/*.d.ts",
       "import": "./dist/toolkit/*.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./toolkit/operations/identity": {
+      "types": "./dist/toolkit/operations/identity/index.d.ts",
+      "import": "./dist/toolkit/operations/identity/index.js"
+    },
+    "./toolkit/operations/browser": {
+      "types": "./dist/toolkit/operations/browser/index.d.ts",
+      "import": "./dist/toolkit/operations/browser/index.js"
+    },
+    "./toolkit/operations/code-interpreter": {
+      "types": "./dist/toolkit/operations/code-interpreter/index.d.ts",
+      "import": "./dist/toolkit/operations/code-interpreter/index.js"
+    },
+    "./toolkit/operations/iam": {
+      "types": "./dist/toolkit/operations/iam/index.d.ts",
+      "import": "./dist/toolkit/operations/iam/index.js"
+    },
+    "./toolkit/operations/swr": {
+      "types": "./dist/toolkit/operations/swr/index.d.ts",
+      "import": "./dist/toolkit/operations/swr/index.js"
+    },
+    "./toolkit/operations/gateway": {
+      "types": "./dist/toolkit/operations/gateway/index.d.ts",
+      "import": "./dist/toolkit/operations/gateway/index.js"
+    },
+    "./toolkit/cli/identity": {
+      "types": "./dist/toolkit/cli/identity/index.d.ts",
+      "import": "./dist/toolkit/cli/identity/index.js"
+    },
+    "./toolkit/cli/browser": {
+      "types": "./dist/toolkit/cli/browser/index.d.ts",
+      "import": "./dist/toolkit/cli/browser/index.js"
+    },
+    "./toolkit/cli/code-interpreter": {
+      "types": "./dist/toolkit/cli/code-interpreter/index.d.ts",
+      "import": "./dist/toolkit/cli/code-interpreter/index.js"
+    },
+    "./toolkit/cli/iam": {
+      "types": "./dist/toolkit/cli/iam/index.d.ts",
+      "import": "./dist/toolkit/cli/iam/index.js"
+    },
+    "./toolkit/cli/swr": {
+      "types": "./dist/toolkit/cli/swr/index.d.ts",
+      "import": "./dist/toolkit/cli/swr/index.js"
+    }
   },
   "bin": {
     "agentarts": "./dist/cli.js"

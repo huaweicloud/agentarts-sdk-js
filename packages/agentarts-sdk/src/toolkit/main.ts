@@ -29,6 +29,11 @@ import { setupLogging } from '../sdk/utils/logging.js';
 import { __version__ } from '../version.js';
 import { normalizeRuntimeArgv } from './cli/common.js';
 import { createGatewayCommand } from './cli/gateway/index.js';
+import { createResourceCommand as createIdentityCommand } from './cli/identity/resources.js';
+import { createResourceCommand as createBrowserCommand } from './cli/browser/resources.js';
+import { createResourceCommand as createCodeInterpreterCommand } from './cli/code-interpreter/resources.js';
+import { createResourceCommand as createIamCommand } from './cli/iam/resources.js';
+import { createResourceCommand as createSwrCommand } from './cli/swr/resources.js';
 import { memoryApp } from './cli/memory/index.js';
 import { createRuntimeAppCommand } from './cli/runtime/commands.js';
 import { createConfigCommand } from './cli/runtime/config.js';
@@ -55,6 +60,11 @@ export const COMMAND_ORDER: readonly string[] = [
   'destroy',
   'gateway',
   'memory',
+  'identity',
+  'browser',
+  'code-interpreter',
+  'iam',
+  'swr',
   'deploy',
   'configure',
 ];
@@ -129,6 +139,11 @@ Examples:
   program.addCommand(createDestroyCommand());
   program.addCommand(createGatewayCommand());
   program.addCommand(memoryApp);
+  program.addCommand(createIdentityCommand());
+  program.addCommand(createBrowserCommand());
+  program.addCommand(createCodeInterpreterCommand());
+  program.addCommand(createIamCommand());
+  program.addCommand(createSwrCommand());
   // Hidden aliases: `deploy` mirrors `launch`, `configure` mirrors `config`.
   program.addCommand(createDeployCommand('deploy'), { hidden: true });
   program.addCommand(createConfigCommand('configure'), { hidden: true });

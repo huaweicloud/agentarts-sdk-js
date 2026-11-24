@@ -5,26 +5,35 @@
  */
 
 import { createInterface } from 'node:readline/promises';
-import { Command } from 'commander';
+import { Command, InvalidArgumentError } from 'commander';
 
-import { GatewayClient } from '../../../sdk/gateway/index.js';
+import { createGatewayOperations } from '../../operations/gateway/index.js';
 import type { RequestResult } from '../../../sdk/service/http-client.js';
 import { echoError, echoSuccess, echoWarning } from '../../utils/common.js';
 
 /** Parse a JSON string to an object. */
-export function parseJson(value?: string | null): Record<string, any> | null {
+export function parseJson(value?: string | null, kind: 'object' | 'array' = 'object'): any {
   if (!value) {
     return null;
   }
   try {
-    return JSON.parse(value);
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) !== (kind === 'array')) {
+      throw new Error('Invalid JSON format');
+    }
+    return parsed;
   } catch {
     throw new Error('Invalid JSON format');
   }
 }
 
-function getGatewayClient(verifySsl = true): GatewayClient {
-  return new GatewayClient(verifySsl);
+function resourceId(value: string): string {
+  if (!value.trim()) throw new InvalidArgumentError('Resource ID cannot be empty');
+  return value;
+}
+
+function getGatewayClient(verifySsl = true) {
+  return createGatewayOperations(verifySsl);
 }
 
 /** Format data as indented JSON, or as a string when serialization fails. */
@@ -36,20 +45,20 @@ export function formatOutput(data: any): string {
   }
 }
 
-function handleError(operation: string, result: RequestResult): void {
+function handleError(operation: string, result: Pick<RequestResult, 'data' | 'error'>): void {
   if (
     result.data !== null &&
     typeof result.data === 'object' &&
     'error_msg' in (result.data as any) &&
     'error_code' in (result.data as any)
   ) {
+    process.exitCode = 1;
     echoError(
       `Error ${operation} (Code: ${(result.data as any)['error_code']}): ${(result.data as any)['error_msg']}`,
     );
   } else {
-    echoError(
-      `Error ${operation}: ${result.data ? formatOutput(result.data) : result.error}`,
-    );
+    process.exitCode = 1;
+    echoError(`Error ${operation}: ${result.data ? formatOutput(result.data) : result.error}`);
   }
 }
 
@@ -72,6 +81,11 @@ function validatePagination(options: { limit?: number; offset?: number }): {
   limit: number;
   offset: number;
 } {
+  for (const [name, value] of Object.entries(options)) {
+    if (value !== undefined && !Number.isSafeInteger(value)) {
+      throw new Error(`${name} must be a safe integer`);
+    }
+  }
   let offset = options.offset;
   if (offset === undefined) {
     offset = 0;
@@ -130,7 +144,7 @@ export function createGatewayCommand(): Command {
           protocolConfiguration: parseJson(options.protocolConfiguration),
           logDeliveryConfiguration: parseJson(options.logDeliveryConfiguration),
           outboundNetworkConfiguration: parseJson(options.outboundNetworkConfiguration),
-          tags: parseJson(options.tags) as any,
+          tags: parseJson(options.tags, 'array') as any,
         });
 
         if (result.success) {
@@ -140,6 +154,7 @@ export function createGatewayCommand(): Command {
           handleError('creating gateway', result);
         }
       } catch (error) {
+        process.exitCode = 1;
         if (error instanceof Error && error.message === 'Invalid JSON format') {
           echoError(error.message);
         } else {
@@ -151,7 +166,7 @@ export function createGatewayCommand(): Command {
   gateway
     .command('update')
     .description('Update an existing gateway')
-    .argument('<gatewayId>', 'Gateway ID')
+    .argument('<gatewayId>', 'Gateway ID', resourceId)
     .option('-d, --description <description>', 'Gateway description')
     .option('--protocol-configuration <json>', 'Protocol configuration (JSON format)')
     .option('--log-delivery-configuration <json>', 'Log delivery configuration (JSON format)')
@@ -164,7 +179,7 @@ export function createGatewayCommand(): Command {
           description: options.description,
           protocolConfiguration: parseJson(options.protocolConfiguration),
           logDeliveryConfiguration: parseJson(options.logDeliveryConfiguration),
-          tags: parseJson(options.tags) as any,
+          tags: parseJson(options.tags, 'array') as any,
         });
 
         if (result.success) {
@@ -174,6 +189,7 @@ export function createGatewayCommand(): Command {
           handleError('updating gateway', result);
         }
       } catch (error) {
+        process.exitCode = 1;
         if (error instanceof Error && error.message === 'Invalid JSON format') {
           echoError(error.message);
         } else {
@@ -185,7 +201,7 @@ export function createGatewayCommand(): Command {
   gateway
     .command('delete')
     .description('Delete a gateway')
-    .argument('<gatewayId>', 'Gateway ID')
+    .argument('<gatewayId>', 'Gateway ID', resourceId)
     .option('-k, --skip-ssl-verification', 'Skip SSL certificate verification', false)
     .action(async (gatewayId: string, options: Record<string, any>) => {
       try {
@@ -205,6 +221,7 @@ export function createGatewayCommand(): Command {
           handleError('deleting gateway', result);
         }
       } catch (error) {
+        process.exitCode = 1;
         echoError(`Unexpected error: ${error}`);
       }
     });
@@ -212,7 +229,7 @@ export function createGatewayCommand(): Command {
   gateway
     .command('get')
     .description('Get details of a gateway')
-    .argument('<gatewayId>', 'Gateway ID')
+    .argument('<gatewayId>', 'Gateway ID', resourceId)
     .option('-k, --skip-ssl-verification', 'Skip SSL certificate verification', false)
     .action(async (gatewayId: string, options: Record<string, any>) => {
       try {
@@ -225,6 +242,7 @@ export function createGatewayCommand(): Command {
           handleError('getting gateway', result);
         }
       } catch (error) {
+        process.exitCode = 1;
         echoError(`Unexpected error: ${error}`);
       }
     });
@@ -270,6 +288,7 @@ export function createGatewayCommand(): Command {
           handleError('listing gateways', result);
         }
       } catch (error) {
+        process.exitCode = 1;
         echoError(`Unexpected error: ${error}`);
       }
     });
@@ -277,7 +296,7 @@ export function createGatewayCommand(): Command {
   gateway
     .command('create-target')
     .description('Create a new gateway target')
-    .argument('<gatewayId>', 'Gateway ID')
+    .argument('<gatewayId>', 'Gateway ID', resourceId)
     .requiredOption('--target-configuration <json>', 'Target configuration (JSON format)')
     .option('-n, --name <name>', 'Target name')
     .option('-d, --description <description>', 'Target description')
@@ -303,6 +322,7 @@ export function createGatewayCommand(): Command {
           handleError('creating target', result);
         }
       } catch (error) {
+        process.exitCode = 1;
         if (error instanceof Error && error.message === 'Invalid JSON format') {
           echoError(error.message);
         } else {
@@ -314,8 +334,8 @@ export function createGatewayCommand(): Command {
   gateway
     .command('update-target')
     .description('Update an existing gateway target')
-    .argument('<gatewayId>', 'Gateway ID')
-    .argument('<targetId>', 'Target ID')
+    .argument('<gatewayId>', 'Gateway ID', resourceId)
+    .argument('<targetId>', 'Target ID', resourceId)
     .option('-n, --name <name>', 'Target name')
     .option('-d, --description <description>', 'Target description')
     .option('--target-configuration <json>', 'Target configuration (JSON format)')
@@ -341,6 +361,7 @@ export function createGatewayCommand(): Command {
           handleError('updating target', result);
         }
       } catch (error) {
+        process.exitCode = 1;
         if (error instanceof Error && error.message === 'Invalid JSON format') {
           echoError(error.message);
         } else {
@@ -352,8 +373,8 @@ export function createGatewayCommand(): Command {
   gateway
     .command('delete-target')
     .description('Delete a gateway target')
-    .argument('<gatewayId>', 'Gateway ID')
-    .argument('<targetId>', 'Target ID')
+    .argument('<gatewayId>', 'Gateway ID', resourceId)
+    .argument('<targetId>', 'Target ID', resourceId)
     .option('-k, --skip-ssl-verification', 'Skip SSL certificate verification', false)
     .action(async (gatewayId: string, targetId: string, options: Record<string, any>) => {
       try {
@@ -373,6 +394,7 @@ export function createGatewayCommand(): Command {
           handleError('deleting target', result);
         }
       } catch (error) {
+        process.exitCode = 1;
         echoError(`Unexpected error: ${error}`);
       }
     });
@@ -380,8 +402,8 @@ export function createGatewayCommand(): Command {
   gateway
     .command('get-target')
     .description('Get details of a gateway target')
-    .argument('<gatewayId>', 'Gateway ID')
-    .argument('<targetId>', 'Target ID')
+    .argument('<gatewayId>', 'Gateway ID', resourceId)
+    .argument('<targetId>', 'Target ID', resourceId)
     .option('-k, --skip-ssl-verification', 'Skip SSL certificate verification', false)
     .action(async (gatewayId: string, targetId: string, options: Record<string, any>) => {
       try {
@@ -394,6 +416,7 @@ export function createGatewayCommand(): Command {
           handleError('getting target', result);
         }
       } catch (error) {
+        process.exitCode = 1;
         echoError(`Unexpected error: ${error}`);
       }
     });
@@ -401,7 +424,7 @@ export function createGatewayCommand(): Command {
   gateway
     .command('list-targets')
     .description('List gateway targets')
-    .argument('<gatewayId>', 'Gateway ID')
+    .argument('<gatewayId>', 'Gateway ID', resourceId)
     .option('--limit <number>', 'Limit for pagination (default: 50, min: 1, max: 100)')
     .option('--offset <number>', 'Offset for pagination (default: 0, min: 0, max: 100000)')
     .option('-k, --skip-ssl-verification', 'Skip SSL certificate verification', false)
@@ -422,6 +445,7 @@ export function createGatewayCommand(): Command {
           handleError('listing targets', result);
         }
       } catch (error) {
+        process.exitCode = 1;
         echoError(`Unexpected error: ${error}`);
       }
     });

@@ -96,6 +96,13 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 
+/** The signer must see exactly the query parameters serialized by the transport.
+ * Core signs undefined as "undefined", while its querystring serializer emits "".
+ */
+function compactQuery(query: Record<string, any>): Record<string, any> {
+  return Object.fromEntries(Object.entries(query).filter(([, value]) => value !== undefined && value !== null));
+}
+
 /**
  * AgentIdentity client (v1).
  *
@@ -199,10 +206,10 @@ export class AgentIdentityClient {
       method: 'GET',
       url: '/v1/api-key-credential-providers',
       contentType: 'application/json',
-      queryParams: {
+      queryParams: compactQuery({
         limit: request.limit,
         marker: request.marker,
-      },
+      }),
       pathParams: {},
       headers: {},
     };
@@ -363,9 +370,9 @@ export class AgentIdentityClient {
       method: 'GET',
       url: '/v1/oauth2/authorize',
       contentType: 'application/json',
-      queryParams: {
+      queryParams: compactQuery({
         request_uri: request.requestUri,
-      },
+      }),
       pathParams: {},
       headers: {},
     };
@@ -387,12 +394,12 @@ export class AgentIdentityClient {
       method: 'GET',
       url: `/v1/oauth2/callback/${request.credentialProviderId}`,
       contentType: 'application/json',
-      queryParams: {
+      queryParams: compactQuery({
         code: request.code,
         state: request.state,
         error: request.error,
         error_description: request.errorDescription,
-      },
+      }),
       pathParams: {
         credential_provider_id: request.credentialProviderId,
       },
@@ -487,10 +494,10 @@ export class AgentIdentityClient {
       method: 'GET',
       url: '/v1/oauth2-credential-providers',
       contentType: 'application/json',
-      queryParams: {
+      queryParams: compactQuery({
         limit: request.limit,
         marker: request.marker,
-      },
+      }),
       pathParams: {},
       headers: {},
     };
@@ -612,10 +619,10 @@ export class AgentIdentityClient {
       method: 'GET',
       url: `/v1/policy-engines/${request.policyEngineId}/policies`,
       contentType: 'application/json',
-      queryParams: {
+      queryParams: compactQuery({
         limit: request.limit,
         marker: request.marker,
-      },
+      }),
       pathParams: {
         policy_engine_id: request.policyEngineId,
       },
@@ -736,10 +743,10 @@ export class AgentIdentityClient {
       method: 'GET',
       url: `/v1/policy-engines/${request.policyEngineId}/attachments`,
       contentType: 'application/json',
-      queryParams: {
+      queryParams: compactQuery({
         limit: request.limit,
         marker: request.marker,
-      },
+      }),
       pathParams: {
         policy_engine_id: request.policyEngineId,
       },
@@ -763,11 +770,11 @@ export class AgentIdentityClient {
       method: 'GET',
       url: '/v1/policy-engines',
       contentType: 'application/json',
-      queryParams: {
+      queryParams: compactQuery({
         type: request.type,
         limit: request.limit,
         marker: request.marker,
-      },
+      }),
       pathParams: {},
       headers: {},
     };
@@ -885,10 +892,10 @@ export class AgentIdentityClient {
       method: 'GET',
       url: '/v1/sts-credential-providers',
       contentType: 'application/json',
-      queryParams: {
+      queryParams: compactQuery({
         limit: request.limit,
         marker: request.marker,
-      },
+      }),
       pathParams: {},
       headers: {},
     };
@@ -1148,10 +1155,10 @@ export class AgentIdentityClient {
       method: 'GET',
       url: '/v1/workload-identities',
       contentType: 'application/json',
-      queryParams: {
+      queryParams: compactQuery({
         limit: request.limit,
         marker: request.marker,
-      },
+      }),
       pathParams: {},
       headers: {},
     };

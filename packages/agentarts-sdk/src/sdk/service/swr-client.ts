@@ -81,7 +81,7 @@ export class SWRClient {
         creator_name: SWRClient.getAttrValue(response, 'creator_name'),
       };
     } catch (error) {
-      console.log(`Organization '${organization}' query failed: ${error}`);
+      logger.info(`Organization '${organization}' query failed: ${error}`);
       return null;
     }
   }
@@ -93,7 +93,7 @@ export class SWRClient {
       const body = new CreateNamespaceRequestBody(organization);
       const request = new CreateNamespaceRequest().withBody(body);
       await client.createNamespace(request);
-      console.log(`√ Created SWR organization: ${organization}`);
+      logger.info(`√ Created SWR organization: ${organization}`);
       return await this.getOrganization(organization);
     } catch (error) {
       const errorStr = String(error).toLowerCase();
@@ -102,10 +102,10 @@ export class SWRClient {
         String(error).includes('已存在') ||
         errorStr.includes('duplicate')
       ) {
-        console.log(`Organization '${organization}' already exists`);
+        logger.info(`Organization '${organization}' already exists`);
         return await this.getOrganization(organization);
       }
-      console.log(`Failed to create organization '${organization}': ${error}`);
+      logger.info(`Failed to create organization '${organization}': ${error}`);
       logger.error(`Failed to create organization '${organization}'`, error);
       return null;
     }
@@ -115,7 +115,7 @@ export class SWRClient {
   async createOrGetOrganization(organization: string): Promise<Record<string, any> | null> {
     const existing = await this.getOrganization(organization);
     if (existing !== null) {
-      console.log(`Organization '${organization}' already exists`);
+      logger.info(`Organization '${organization}' already exists`);
       return existing;
     }
     return this.createOrganization(organization);
@@ -137,7 +137,7 @@ export class SWRClient {
         path: SWRClient.getAttrValue(response, 'path'),
       };
     } catch (error) {
-      console.log(`Repository '${organization}/${repository}' query failed: ${error}`);
+      logger.info(`Repository '${organization}/${repository}' query failed: ${error}`);
       return null;
     }
   }
@@ -153,7 +153,7 @@ export class SWRClient {
       const body = new CreateRepoRequestBody(repository, isPublic);
       const request = new CreateRepoRequest(undefined, organization).withBody(body);
       await client.createRepo(request);
-      console.log(`√ Created SWR repository: ${organization}/${repository}`);
+      logger.info(`√ Created SWR repository: ${organization}/${repository}`);
       return await this.getRepository(organization, repository);
     } catch (error) {
       const errorStr = String(error).toLowerCase();
@@ -162,10 +162,10 @@ export class SWRClient {
         String(error).includes('已存在') ||
         errorStr.includes('duplicate')
       ) {
-        console.log(`Repository '${organization}/${repository}' already exists`);
+        logger.info(`Repository '${organization}/${repository}' already exists`);
         return await this.getRepository(organization, repository);
       }
-      console.log(`Failed to create repository '${organization}/${repository}': ${error}`);
+      logger.info(`Failed to create repository '${organization}/${repository}': ${error}`);
       return null;
     }
   }
@@ -178,7 +178,7 @@ export class SWRClient {
   ): Promise<Record<string, any> | null> {
     const existing = await this.getRepository(organization, repository);
     if (existing !== null) {
-      console.log(`Repository ${organization}/${repository} already exists`);
+      logger.info(`Repository ${organization}/${repository} already exists`);
       return existing;
     }
     return this.createRepository(organization, repository, isPublic);
@@ -206,14 +206,14 @@ export class SWRClient {
         const separatorIndex = decodedAuth.indexOf(':');
         const username = separatorIndex >= 0 ? decodedAuth.slice(0, separatorIndex) : decodedAuth;
         const password = separatorIndex >= 0 ? decodedAuth.slice(separatorIndex + 1) : '';
-        console.log(`√ Created SWR secret for region: ${this._region}`);
+        logger.info(`√ Created SWR secret for region: ${this._region}`);
         return [loginServer, username, password];
       }
 
-      console.log('Warning: No auth data found in SWR secret response');
+      logger.warning('No auth data found in SWR secret response');
       return [loginServer, '', ''];
     } catch (error) {
-      console.log(`Failed to create SWR secret: ${error}`);
+      logger.info(`Failed to create SWR secret: ${error}`);
       return [loginServer, '', ''];
     }
   }

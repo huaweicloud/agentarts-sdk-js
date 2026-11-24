@@ -202,3 +202,15 @@ describe('AgentIdentityClient', () => {
     expect(sendRequest).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Identity query signing regression', () => {
+  it.each(['listWorkloadIdentities','listApiKeyCredentialProviders','listOauth2CredentialProviders','listStsCredentialProviders'] as const)(
+    '%s omits unset query parameters before Core signing and serialization', async (method) => {
+      const {hcClient,client}=createClient();
+      const send=vi.spyOn(hcClient,'sendRequest').mockResolvedValue({});
+      await (client[method] as any)({limit:1});
+      expect(sentOptions(send).queryParams).toEqual({limit:1});
+      await (client[method] as any)({limit:1,marker:'next'});
+      expect(sentOptions(send,1).queryParams).toEqual({limit:1,marker:'next'});
+    });
+});
