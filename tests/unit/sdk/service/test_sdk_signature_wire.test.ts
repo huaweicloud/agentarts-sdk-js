@@ -19,6 +19,7 @@ const server = createServer(async (req, res) => {
   res.end(
     JSON.stringify({
       method: req.method,
+      url: req.url,
       body: body.toString('utf8'),
       digest: createHash('sha256').update(body).digest('hex'),
       headers: req.headers,
@@ -46,6 +47,38 @@ class TestClient extends BaseHTTPClient {
     this._credentials = new BasicCredentials().withAk('test-ak').withSk('test-only-secret');
     if (token) this._credentials.withSecurityToken(token);
   }
+}
+
+const queryCases = [
+  { params: { name: "agent one!'()*" }, query: 'name=agent%20one%21%27%28%29%2A' },
+  { params: { 'key !': '+%&=/#?' }, query: 'key%20%21=%2B%25%26%3D%2F%23%3F' },
+  { params: { name: '中文🙂' }, query: 'name=%E4%B8%AD%E6%96%87%F0%9F%99%82' },
+  { params: { tag: ['a b', 'x(y)'] }, query: 'tag=a%20b&tag=x%28y%29' },
+];
+
+for (const { params, query } of queryCases) {
+  test(`query bytes follow RFC 3986 and retain a valid signature: ${query}`, async () => {
+    const result = await new TestClient().get('/echo', params);
+    expect(result.success).toBe(true);
+    expect(result.data.url).toBe(`/echo?${query}`);
+
+    // Reconstruct the signed parameters from the actual request, not the input fixture.
+    const received = new URL(result.data.url, endpoint);
+    const queryParams: Array<[string, string | string[]]> = [];
+    for (const key of new Set(received.searchParams.keys())) {
+      const values = received.searchParams.getAll(key);
+      queryParams.push([key, values.length === 1 ? values[0]! : values]);
+    }
+    const credentials = new BasicCredentials().withAk('test-ak').withSk('test-only-secret');
+    const expected = await new SDKSigner(credentials).sign(
+      'GET',
+      `${received.origin}${received.pathname}`,
+      { 'X-Sdk-Date': result.data.headers['x-sdk-date'] },
+      undefined,
+      queryParams,
+    );
+    expect(result.data.headers.authorization).toBe(expected.Authorization);
+  });
 }
 
 const cases: Array<{ name: string; method: string; options: RequestOptions; body: string }> = [
