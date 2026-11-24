@@ -561,29 +561,40 @@ function isBinaryBody(value: any): boolean {
   );
 }
 
+/**
+ * RFC 3986 percent-encoding.
+ *
+ * `encodeURIComponent` leaves `! ' ( ) *` unescaped, while the canonical query
+ * of the AK/SK signers escapes them (`%21`, `%27`, ...), and it must never
+ * produce the form-style `+` for spaces. Any mismatch here makes the server
+ * recompute a different canonical request and reject the signature.
+ */
+function encodeRfc3986(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
 /** Append query parameters to a URL (RFC 3986 encoding, repeated keys for arrays). */
 function appendQueryParams(url: string, params?: Record<string, any>): string {
   if (!params) {
     return url;
   }
-  const search = new URLSearchParams();
+  const parts: string[] = [];
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null) {
       continue;
     }
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (item !== undefined && item !== null) {
-          search.append(key, String(item));
-        }
+    const items = Array.isArray(value) ? value : [value];
+    for (const item of items) {
+      if (item !== undefined && item !== null) {
+        parts.push(`${encodeRfc3986(key)}=${encodeRfc3986(String(item))}`);
       }
-    } else {
-      search.append(key, String(value));
     }
   }
-  const query = search.toString();
-  if (!query) {
+  if (parts.length === 0) {
     return url;
   }
-  return `${url}${url.includes('?') ? '&' : '?'}${query}`;
+  return `${url}${url.includes('?') ? '&' : '?'}${parts.join('&')}`;
 }

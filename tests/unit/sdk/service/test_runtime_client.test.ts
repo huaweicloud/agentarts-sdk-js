@@ -120,6 +120,7 @@ function streamResponse(
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()!;
     rmSync(dir, { recursive: true, force: true });
@@ -725,5 +726,137 @@ describe('Runtime query serialization regression', () => {
     const url = new URL(String((fetchMock.mock.calls as any[][])[0][0]));
     expect(url.searchParams.getAll('limit')).toEqual(['10']);
     expect(url.searchParams.getAll('offset')).toEqual(['1']);
+  });
+});
+
+// ============================================================
+// Query parameter serialization
+// ============================================================
+
+/** Give the signer credentials so the real request pipeline can run. */
+function stubCredentials(): void {
+  vi.stubEnv('HUAWEICLOUD_SDK_AK', 'fake-ak');
+  vi.stubEnv('HUAWEICLOUD_SDK_SK', 'fake-sk');
+  vi.stubEnv('HUAWEICLOUD_SDK_PROJECT_ID', 'fake-project');
+}
+
+function jsonResponse(data: unknown): Response {
+  return new Response(JSON.stringify(data), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+describe('TestRuntimeClientQuerySerialization', () => {
+  it('find agent by name sends each parameter exactly once', async () => {
+    stubCredentials();
+    const mock = stubFetch(jsonResponse({ items: [] }));
+    const client = new RuntimeClient({ controlEndpoint: 'https://control.example.com' });
+
+    await client.findAgentByName('runtime-caigeng1123');
+
+    const url = String(mock.mock.calls[0][0]);
+    expect(url).toBe(
+      'https://control.example.com/v1/core/runtimes?name=runtime-caigeng1123&match_type=EXACT',
+    );
+    // The gateway recomputes the canonical query from the wire URL, so a
+    // duplicated key would invalidate the signature.
+    const params = new URL(url).searchParams;
+    expect(params.getAll('name')).toEqual(['runtime-caigeng1123']);
+    expect(params.getAll('match_type')).toEqual(['EXACT']);
+  });
+
+  it('encodes query values as RFC 3986, matching the canonical request', async () => {
+    stubCredentials();
+    const mock = stubFetch(jsonResponse({ items: [] }));
+    const client = new RuntimeClient({ controlEndpoint: 'https://control.example.com' });
+
+    await client.findAgentByName('agent one(x)');
+
+    const url = String(mock.mock.calls[0][0]);
+    // Space must be `%20` (not `+`) and `()` must be escaped.
+    expect(url).toContain('name=agent%20one%28x%29');
+    expect(url).not.toContain('+');
+  });
+
+  it('get agents sends pagination and extra filters exactly once', async () => {
+    stubCredentials();
+    const mock = stubFetch(jsonResponse({ items: [] }));
+    const client = new RuntimeClient({ controlEndpoint: 'https://control.example.com' });
+
+    await client.getAgents({
+      agentName: 'agent one',
+      offset: 2,
+      limit: 20,
+      extra: { tag: 'prod' },
+    });
+
+    const raw = String(mock.mock.calls[0][0]);
+    const params = new URL(raw).searchParams;
+    expect(params.get('agent_name')).toBe('agent one');
+    expect(params.get('offset')).toBe('2');
+    expect(params.get('limit')).toBe('20');
+    expect(params.get('tag')).toBe('prod');
+    // Count raw occurrences: `getAll` alone would hide a duplicated pair.
+    for (const key of ['agent_name', 'offset', 'limit', 'tag']) {
+      expect(raw.split(`${key}=`).length - 1).toBe(1);
+    }
+  });
+
+  it('keeps every array value, once each', async () => {
+    stubCredentials();
+    const mock = stubFetch(jsonResponse({ items: [] }));
+    const client = new RuntimeClient({ controlEndpoint: 'https://control.example.com' });
+
+    await client.getAgents({ extra: { tag: ['prod', 'dev'] } });
+
+    const raw = String(mock.mock.calls[0][0]);
+    // The signer sorts multi-valued params in place for the canonical request,
+    // so the wire order follows that sorted order instead of the caller's.
+    expect(raw.split('tag=').length - 1).toBe(2);
+    expect(new URL(raw).searchParams.getAll('tag').sort()).toEqual(['dev', 'prod']);
+  });
+
+  it('appends to an existing query string with a single ?', async () => {
+    stubCredentials();
+    const mock = stubFetch(jsonResponse({}));
+    const client = new RuntimeClient({ controlEndpoint: 'https://control.example.com' });
+
+    await client._control('GET', '/v1/core/runtimes?foo=1', { params: { bar: '2' } });
+
+    const raw = String(mock.mock.calls[0][0]);
+    expect(raw).toBe('https://control.example.com/v1/core/runtimes?foo=1&bar=2');
+    expect(raw.split('?').length - 1).toBe(1);
+  });
+
+  it('omits null and undefined parameters', async () => {
+    stubCredentials();
+    const mock = stubFetch(jsonResponse({}));
+    const client = new RuntimeClient({ controlEndpoint: 'https://control.example.com' });
+
+    await client._control('GET', '/v1/core/runtimes', {
+      params: { keep: 'v', missing: undefined, empty: null },
+    });
+
+    const raw = String(mock.mock.calls[0][0]);
+    expect(raw).toBe('https://control.example.com/v1/core/runtimes?keep=v');
+  });
+
+  it('issues a single signed fetch for a query request', async () => {
+    stubCredentials();
+    const mock = stubFetch(jsonResponse({ items: [] }));
+    const client = new RuntimeClient({ controlEndpoint: 'https://control.example.com' });
+
+    await client.findAgentByName('runtime-caigeng1123');
+
+    expect(mock).toHaveBeenCalledTimes(1);
+    const raw = String(mock.mock.calls[0][0]);
+    expect(raw.split('name=').length - 1).toBe(1);
+    expect(raw.split('match_type=').length - 1).toBe(1);
+
+    const { headers } = mock.mock.calls[0][1] as { headers: Record<string, string> };
+    const authHeader = Object.keys(headers).find((key) => key.toLowerCase() === 'authorization');
+    expect(authHeader).toBeDefined();
+    expect(headers[authHeader!]).toMatch(/^SDK-HMAC-SHA256 /);
   });
 });
