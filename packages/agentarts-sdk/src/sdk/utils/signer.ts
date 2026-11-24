@@ -4,6 +4,8 @@
  * Provides signing utilities for Huawei Cloud API requests (SDK-HMAC-SHA256).
  */
 
+import { createHash } from 'node:crypto';
+
 import { AKSKSigner } from '@huaweicloud/huaweicloud-sdk-core/auth/AKSKSigner.js';
 import { BasicCredentials } from '@huaweicloud/huaweicloud-sdk-core';
 import type { IHttpRequest } from '@huaweicloud/huaweicloud-sdk-core/http/IHttpRequest.js';
@@ -60,6 +62,20 @@ export class SDKSigner {
     for (const [key, value] of queryParams ?? []) {
       query[key] = value;
     }
+
+    // core serializes request.data again; hash the actual outgoing bytes instead.
+    let explicitHash: string | undefined;
+    for (const key of Object.keys(headers)) {
+      if (key.toLowerCase() === 'x-sdk-content-sha256') {
+        explicitHash = headers[key];
+        delete headers[key];
+      }
+    }
+    headers['X-Sdk-Content-Sha256'] =
+      explicitHash ??
+      createHash('sha256')
+        .update(body ?? '', 'utf8')
+        .digest('hex');
 
     const request: IHttpRequest = {
       method,
