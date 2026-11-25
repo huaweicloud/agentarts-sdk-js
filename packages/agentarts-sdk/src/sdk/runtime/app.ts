@@ -28,6 +28,8 @@ import { WebSocketServer } from 'ws';
 import type { RawData, WebSocket as WsWebSocket } from 'ws';
 
 import { AgentArtsRuntimeContext, RequestContext } from './context.js';
+import { ExecutionCoordinator, boundedInteger, type ExecutionLimits } from './execution.js';
+import { ProtocolHttpError, makeProtocolRequest, type RuntimeProtocol } from './protocol.js';
 import {
   ACCESS_TOKEN_HEADER,
   PingStatus,
@@ -78,6 +80,9 @@ export interface AgentArtsRuntimeAppOptions {
   protocol?: 'http' | 'https';
   /** Maximum concurrent executions shared by HTTP and explicitly acquired slots. Defaults to `15`. */
   maxConcurrency?: number;
+  executionLimits?: ExecutionLimits;
+  /** Bound active requests to optional protocol routes, including subscriptions. */
+  maxProtocolRequests?: number;
   /** Optional startup/shutdown hooks (the Node equivalent of an ASGI lifespan). */
   lifespan?: RuntimeLifespan | null;
 }
@@ -871,6 +876,11 @@ export class AgentArtsRuntimeApp {
   private readonly _lifespan: RuntimeLifespan | null;
   private _nextTaskId = 1;
   private _activeInvocations = 0;
+  readonly executions: ExecutionCoordinator;
+  private readonly _protocolRoutes = new Map<string, { protocol: RuntimeProtocol; methods: readonly string[] }>();
+  private _protocolRequests = 0;
+  private readonly _maxProtocolRequests: number;
+  private readonly _protocolShutdownHooks = new Set<() => Promise<void>>();
 
   constructor(options: AgentArtsRuntimeAppOptions = {}) {
     this.debug = options.debug ?? false;
@@ -882,6 +892,8 @@ export class AgentArtsRuntimeApp {
     this._lifespan = options.lifespan ?? null;
     this._lastStatusUpdateTime = Date.now();
     this.logger = getLogger('runtime.app');
+    this._maxProtocolRequests = boundedInteger(options.maxProtocolRequests ?? 64, 'maxProtocolRequests');
+    this.executions = new ExecutionCoordinator(() => this.acquireSlot(), options.executionLimits);
   }
 
   // ------------------------------------------------------------------
@@ -915,6 +927,24 @@ export class AgentArtsRuntimeApp {
   websocket(fn: RuntimeWebSocketHandler): RuntimeWebSocketHandler {
     this._wsHandler = fn;
     return fn;
+  }
+
+  /** Mount an optional protocol without importing its dependencies into the base SDK. */
+  use(protocol: RuntimeProtocol): this {
+    if (!protocol || typeof protocol.handle !== 'function' || !protocol.routes.length) throw new TypeError('Invalid runtime protocol');
+    const paths = new Set<string>();
+    for (const route of protocol.routes) {
+      if (!/^\/(?:[A-Za-z0-9_.~-]+\/)*[A-Za-z0-9_.~-]+$/.test(route.path) ||
+          new URL(route.path, 'http://localhost').pathname !== route.path ||
+          ['/invocations', '/ping', '/ws'].includes(route.path) ||
+          this._protocolRoutes.has(route.path) || paths.has(route.path) || !route.methods.length ||
+          route.methods.some(method => !/^(GET|POST|DELETE|OPTIONS)$/.test(method))) {
+        throw new Error('Conflicting or invalid protocol route');
+      }
+      paths.add(route.path);
+    }
+    for (const route of protocol.routes) this._protocolRoutes.set(route.path, { protocol, methods: [...route.methods] });
+    return this;
   }
 
   /**
@@ -1461,6 +1491,39 @@ export class AgentArtsRuntimeApp {
     req.once('aborted', cancel);
     res.once('close', cancel);
     try {
+      const mounted = this._protocolRoutes.get(pathname);
+      if (mounted) {
+        // Aborted request bodies may emit a later ECONNRESET after a parser has
+        // removed its listeners. Keep an observer until IncomingMessage closes.
+        const observeRequestError = () => {};
+        req.on('error', observeRequestError);
+        req.once('close', () => req.off('error', observeRequestError));
+        if (!mounted.methods.includes(req.method ?? 'GET')) {
+          await this._writeResponse(res, new JsonResponse({ statusCode: 405, content: { error: 'METHOD_NOT_ALLOWED' }, headers: { allow: mounted.methods.join(', ') } }));
+          return;
+        }
+        if (this._protocolRequests >= this._maxProtocolRequests) {
+          await this._writeResponse(res, new JsonResponse({ statusCode: 503, content: { error: 'PROTOCOL_CAPACITY' }, headers: { connection: 'close' } }));
+          return;
+        }
+        this._protocolRequests++;
+        try {
+          let response: Response;
+          try {
+            response = await AgentArtsRuntimeContext.runInNewContext(() => mounted.protocol.handle(
+              makeProtocolRequest(req, pathname, cancellation.signal), { executions: this.executions, logger: this.logger, acquireSlot: () => this.acquireSlot() },
+            ));
+          } catch (error) {
+            // Never reflect provider/SDK exception messages or stack traces.
+            const known = error instanceof ProtocolHttpError;
+            response = new JsonResponse({ statusCode: known ? error.status : 500,
+              content: { error: known ? error.code : 'INTERNAL_ERROR' }, headers: { ...(known ? error.headers : {}), connection: 'close' } });
+          }
+          if (!req.complete) response.headers.connection = 'close';
+          await this._writeResponse(res, response);
+        } finally { this._protocolRequests--; }
+        return;
+      }
       if (pathname === '/invocations') {
         if (req.method !== 'POST') {
           await this._writeResponse(
@@ -1857,6 +1920,11 @@ export class AgentArtsRuntimeApp {
   }
 
   private async _shutdown(): Promise<void> {
+    try {
+      await this.shutdown();
+    } catch (err) {
+      this.logger.exception(`Protocol shutdown failed: ${errorName(err)}: ${errorMessage(err)}`);
+    }
     const lifespan = this._lifespan;
     if (!lifespan?.onShutdown) {
       return;
@@ -1866,6 +1934,28 @@ export class AgentArtsRuntimeApp {
     } catch (err) {
       this.logger.exception(`Lifespan shutdown failed: ${errorName(err)}: ${errorMessage(err)}`);
     }
+  }
+
+  /** Cancel mounted protocol executions and wait for their actual cleanup. */
+  async shutdown(): Promise<void> {
+    const protocols = new Set([...this._protocolRoutes.values()].map(route => route.protocol));
+    const cleanup = [
+      () => this.executions.shutdown(),
+      ...[...protocols].map(protocol => () => protocol.shutdown?.()),
+      ...this._protocolShutdownHooks,
+    ];
+    const results = await Promise.allSettled(cleanup.map(async handler => handler()));
+    const failures = results.filter(result => result.status === 'rejected');
+    if (failures.length === 1) throw failures[0]!.reason;
+    if (failures.length > 1) {
+      throw new AggregateError(failures.map(result => result.reason), 'Protocol shutdown failed');
+    }
+  }
+
+  /** Register external protocol transports in the same application shutdown lifecycle. */
+  onProtocolShutdown(handler: () => Promise<void>): () => void {
+    this._protocolShutdownHooks.add(handler);
+    return () => { this._protocolShutdownHooks.delete(handler); };
   }
 }
 

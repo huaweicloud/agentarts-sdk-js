@@ -1,0 +1,40 @@
+{
+  "name": "@huaweicloud/agentarts-protocol-agui",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Optional AgentArts AGUI runtime adapter",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@ag-ui/client": "1.0.5",
+    "@ag-ui/core": "1.0.5",
+    "@ag-ui/encoder": "1.0.5",
+    "fast-json-patch": "3.1.2",
+    "rxjs": "7.8.1",
+    "zod": "4.6.7"
+  },
+  "peerDependencies": {
+    "@huaweicloud/agentarts-sdk": "workspace:^"
+  },
+  "devDependencies": {
+    "@huaweicloud/agentarts-sdk": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "node ../../scripts/clean.mjs"
+  }
+}

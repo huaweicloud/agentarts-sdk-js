@@ -8,6 +8,7 @@ Thumbs.db
 .env
 .env.local
 .agentarts/
+.agentarts-protocol/
 *.tsbuildinfo
 package-lock.json
 

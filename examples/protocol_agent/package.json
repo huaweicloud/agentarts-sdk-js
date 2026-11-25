@@ -1,0 +1,16 @@
+{
+  "name": "agentarts-protocol-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@huaweicloud/agentarts-sdk": "workspace:*",
+    "@huaweicloud/agentarts-protocol-a2a": "workspace:*",
+    "@huaweicloud/agentarts-protocol-agui": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/agent.js",
+    "start:full": "node dist/full.js"
+  }
+}
