@@ -1,4 +1,4 @@
-﻿name: Publish to npm
+name: Publish to npm
 
 # 打 tag（v*）时发布以下两个包到 npm：
 #   - @huaweicloud/huaweicloud-sdk-agentidentity（先发，主包依赖它）
@@ -66,7 +66,7 @@ jobs:
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -226,7 +226,7 @@ jobs:
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
