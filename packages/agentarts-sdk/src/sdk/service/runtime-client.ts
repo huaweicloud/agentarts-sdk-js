@@ -43,7 +43,7 @@ import { Agent } from 'undici';
 import { SESSION_HEADER, USER_ID_HEADER } from '../runtime/model.js';
 import { getControlPlaneEndpoint, getRuntimeDataPlaneEndpoint } from '../utils/constant.js';
 import { getLogger } from '../utils/logging.js';
-import { v11UrlEncode } from '../utils/signer-v11.js';
+import { appendQueryParams } from '../utils/query.js';
 import { buildUserAgent } from '../utils/user-agent.js';
 import {
   BaseHTTPClient,
@@ -111,43 +111,7 @@ function _formatValue(value: any): string {
   }
 }
 
-/** RFC 3986 encoding, matching Python's `quote(value, safe='~')`. */
-function _encodeValue(value: any): string {
-  return v11UrlEncode(String(value));
-}
 
-/**
- * Serialize query parameters (`None` values are dropped, list values repeat
- * the key), mirroring Python's `requests` behaviour.
- */
-function _encodeQuery(params?: Record<string, any> | null): string {
-  if (!params) {
-    return '';
-  }
-  const parts: string[] = [];
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null) {
-      continue;
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        parts.push(`${_encodeValue(key)}=${_encodeValue(item)}`);
-      }
-    } else {
-      parts.push(`${_encodeValue(key)}=${_encodeValue(value)}`);
-    }
-  }
-  return parts.join('&');
-}
-
-/** Append query parameters to a relative URL. */
-function _appendQuery(url: string, params?: Record<string, any> | null): string {
-  const query = _encodeQuery(params);
-  if (!query) {
-    return url;
-  }
-  return `${url}${url.includes('?') ? '&' : '?'}${query}`;
-}
 
 /**
  * Detect a tar payload by `.tar` suffix or the `ustar` magic at offset 257.
@@ -245,7 +209,7 @@ class RuntimeHTTPClient extends BaseHTTPClient {
     options: RequestOptions = {},
   ): Promise<RequestResult> {
     const { params, ...rest } = options;
-    const fullUrl = `${this._config.baseUrl}${_appendQuery(url, params)}`;
+    const fullUrl = `${this._config.baseUrl}${appendQueryParams(url, params)}`;
 
     const defaultHeaders: Record<string, string> = {
       'User-Agent': buildUserAgent(this._config.headers['User-Agent'] ?? ''),
@@ -259,7 +223,13 @@ class RuntimeHTTPClient extends BaseHTTPClient {
 
     if (this._openAkSk) {
       try {
-        working = await this._signRequest(method, fullUrl, { ...working, data: body });
+        working = await this._signRequest(method, fullUrl, {
+          ...working,
+          data: body,
+          // The params were folded into `fullUrl` above; sign the same set so the
+          // canonical query cannot diverge from the wire query.
+          params,
+        });
       } catch (error) {
         return new RequestResult({
           success: false,
@@ -1788,7 +1758,7 @@ export class LocalRuntimeClient extends BaseHTTPClient {
     // Python uses `timeout or self._config.timeout`, so falsy values fall back.
     const requestTimeout = options.timeout || this._config.timeout;
 
-    const result = await this._request('POST', _appendQuery(path, params), {
+    const result = await this._request('POST', appendQueryParams(path, params), {
       data: payload,
       headers,
       timeout: requestTimeout,
@@ -1864,7 +1834,7 @@ export class LocalRuntimeClient extends BaseHTTPClient {
     // Python uses `timeout or 30`, so falsy values fall back.
     const requestTimeout = options.timeout || 30;
 
-    const result = await this._request('GET', _appendQuery(path, params), {
+    const result = await this._request('GET', appendQueryParams(path, params), {
       headers: Object.keys(headers).length > 0 ? headers : undefined,
       timeout: requestTimeout,
     });

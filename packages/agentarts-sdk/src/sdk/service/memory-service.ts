@@ -20,6 +20,7 @@ import type { BasicCredentials } from '@huaweicloud/huaweicloud-sdk-core';
 
 import { getLogger } from '../utils/logging.js';
 import { getMemoryEndpoint, getRegion } from '../utils/constant.js';
+import { appendQueryParams, normalizeQueryParams } from '../utils/query.js';
 import { SDKSigner } from '../utils/signer.js';
 import { buildUserAgent } from '../utils/user-agent.js';
 import { createCredential } from '../utils/metadata.js';
@@ -74,22 +75,13 @@ export async function sendHttpRequest(
   url: string,
   options: HttpSendOptions = {},
 ): Promise<Response> {
-  const target = new URL(url);
-  for (const [key, value] of Object.entries(options.params ?? {})) {
-    if (value === undefined || value === null) {
-      continue;
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        target.searchParams.append(key, String(item));
-      }
-    } else {
-      target.searchParams.append(key, String(value));
-    }
-  }
+  // `URLSearchParams` emits form encoding (`+` for spaces, `%7E` for `~`),
+  // while the AK/SK canonical query uses RFC 3986, so signing a request built
+  // with it fails for any value containing a space, `~` or non-ASCII text.
+  const target = appendQueryParams(url, options.params);
 
   const timeoutMs = Math.max(1, Math.round((options.timeoutSeconds ?? 30) * 1000));
-  return fetch(target.toString(), {
+  return fetch(target, {
     method,
     headers: options.headers ?? {},
     body: options.body ?? undefined,
@@ -253,7 +245,11 @@ export class ControlPlaneAuthenticationStrategy extends AuthenticationStrategy {
       return headers;
     }
 
-    const paramsList = params ? Object.entries(params) : null;
+    // Sign exactly what `appendQueryParams` puts on the wire: the signer does
+    // not drop null/undefined, so signing raw params would add keys the URL
+    // never carries. Arrays are normalized (copied, sorted) as well, keeping the
+    // canonical order identical to the wire and the caller's array untouched.
+    const paramsList = Object.entries(normalizeQueryParams(params));
     return this._signer.sign(method, url, headers, body ?? null, paramsList);
   }
 }

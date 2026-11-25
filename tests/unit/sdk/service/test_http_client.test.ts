@@ -14,6 +14,7 @@ import {
   RequestConfig,
   RequestResult,
 } from 'agentarts-sdk/sdk/service/http-client';
+import { SDKSigner } from 'agentarts-sdk/sdk/utils/signer';
 
 type FetchMock = ReturnType<typeof vi.fn>;
 
@@ -908,5 +909,62 @@ describe('TestBaseHTTPClientStreaming', () => {
     expect(result.success).toBe(false);
     expect(result.statusCode).toBe(0);
     expect(result.streaming).toBe(false);
+  });
+});
+
+// ============================================================
+// SDK signature: binary bodies
+// ============================================================
+
+describe('TestSdkSignatureBinaryBody', () => {
+  function signedClient(): BaseHTTPClient {
+    vi.stubEnv('HUAWEICLOUD_SDK_AK', 'fake-ak');
+    vi.stubEnv('HUAWEICLOUD_SDK_SK', 'fake-sk');
+    vi.stubEnv('HUAWEICLOUD_SDK_PROJECT_ID', 'fake-project');
+    return new BaseHTTPClient(new RequestConfig({ baseUrl: 'https://control.example.com' }), true);
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it('signs Uint8Array bodies as UNSIGNED-PAYLOAD', async () => {
+    const client = signedClient();
+    const mock = stubFetch(jsonResponse({ ok: true }));
+    const signSpy = vi.spyOn(SDKSigner.prototype, 'sign');
+    const payload = new Uint8Array([1, 2, 3, 4]);
+
+    await (client as any)._request('POST', '/v1/core/upload', { data: payload });
+
+    // The binary payload must not be stringified into a form body for signing.
+    expect(signSpy.mock.calls[0][3]).toBeNull();
+
+    const init = mock.mock.calls[0][1] as RequestInit;
+    // The signer normalizes the header name; assert what actually hits the wire.
+    expect((init.headers as Record<string, string>)['X-Sdk-Content-Sha256']).toBe(
+      'UNSIGNED-PAYLOAD',
+    );
+    expect(init.body).toBe(payload);
+  });
+
+  it('signs FormData bodies as UNSIGNED-PAYLOAD without form-encoding them', async () => {
+    const client = signedClient();
+    const mock = stubFetch(jsonResponse({ ok: true }));
+    const signSpy = vi.spyOn(SDKSigner.prototype, 'sign');
+    const form = new FormData();
+    form.append('file', new Blob(['hello']), 'a.txt');
+
+    await (client as any)._request('POST', '/v1/core/upload', { data: form });
+
+    expect(signSpy.mock.calls[0][3]).toBeNull();
+
+    const init = mock.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)['X-Sdk-Content-Sha256']).toBe(
+      'UNSIGNED-PAYLOAD',
+    );
+    expect(init.body).toBe(form);
+    // fetch sets the multipart boundary itself; a stale JSON/form type breaks it.
+    expect((init.headers as Record<string, string>)['Content-Type']).toBeUndefined();
   });
 });

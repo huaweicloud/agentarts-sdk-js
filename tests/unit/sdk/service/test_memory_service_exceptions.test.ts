@@ -20,7 +20,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { APIException, MemoryAPIException } from 'agentarts-sdk/sdk/service/http-client';
-import { MemoryHttpService } from 'agentarts-sdk/sdk/service/memory-service';
+import {
+  ControlPlaneAuthenticationStrategy,
+  MemoryHttpService,
+  sendHttpRequest,
+} from 'agentarts-sdk/sdk/service/memory-service';
+import { SDKSigner } from 'agentarts-sdk/sdk/utils/signer';
 import { AsyncMemoryHttpService } from 'agentarts-sdk/sdk/service/memory-service-async';
 
 /** Create a data-plane `MemoryHttpService` (no AK/SK signing needed). */
@@ -335,5 +340,59 @@ describe('TestMemoryAPIExceptionProperties', () => {
     const exc = new MemoryAPIException(404, 'NOT_FOUND', 'Session not found');
     expect(String(exc)).toContain('404');
     expect(String(exc)).toContain('Session not found');
+  });
+});
+
+// ============================================================
+// Query serialization
+// ============================================================
+
+describe('TestMemoryQueryEncoding', () => {
+  it('test_wire_query_uses_rfc3986', async () => {
+    // The AK/SK canonical query uses RFC 3986, so the wire must not emit the
+    // form-style `+` for spaces nor keep `~` escaped (`%7E`).
+    const mock = vi.fn(async (_url: string | URL) => jsonResponse({ ok: true }));
+    vi.stubGlobal('fetch', mock);
+
+    await sendHttpRequest('GET', 'https://memory.example.com/v1/core/spaces', {
+      params: {
+        actor_id: 'user one(测试)~x',
+        limit: 10,
+        deleted: null,
+        missing: undefined,
+      },
+    });
+
+    const raw = String(mock.mock.calls[0][0]);
+    expect(raw).toContain('actor_id=user%20one%28%E6%B5%8B%E8%AF%95%29~x');
+    expect(raw).not.toContain('+');
+    expect(raw).not.toContain('deleted=');
+    expect(raw).not.toContain('missing=');
+    expect(raw).toContain('limit=10');
+  });
+
+  it('test_signed_query_matches_wire', async () => {
+    // The signer keeps null/undefined verbatim (`deleted=null`), which the wire
+    // never carries, so the canonical query must be normalized first.
+    const signSpy = vi.spyOn(SDKSigner.prototype, 'sign').mockResolvedValue({});
+    try {
+      const strategy = new ControlPlaneAuthenticationStrategy();
+      (strategy as any)._signer = new SDKSigner();
+      const params = {
+        deleted: null,
+        missing: undefined,
+        tag: ['prod', 'dev'],
+        limit: 1,
+      };
+
+      await strategy.signRequest('GET', 'https://memory.example.com/v1/core/spaces', {}, null, params);
+
+      const signedQuery = signSpy.mock.calls[0][4] as Array<[string, any]>;
+      expect(Object.fromEntries(signedQuery)).toEqual({ tag: ['dev', 'prod'], limit: '1' });
+      // The caller's array must not be sorted in place by the signer.
+      expect(params.tag).toEqual(['prod', 'dev']);
+    } finally {
+      signSpy.mockRestore();
+    }
   });
 });

@@ -23,6 +23,7 @@ import {
   uploadContentType,
 } from 'agentarts-sdk/sdk/service/runtime-client';
 import { RequestResult, SignMode } from 'agentarts-sdk/sdk/service/http-client';
+import { SDKSigner } from 'agentarts-sdk/sdk/utils/signer';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const TAR_MAGIC_OFFSET = 257;
@@ -811,10 +812,11 @@ describe('TestRuntimeClientQuerySerialization', () => {
     await client.getAgents({ extra: { tag: ['prod', 'dev'] } });
 
     const raw = String(mock.mock.calls[0][0]);
-    // The signer sorts multi-valued params in place for the canonical request,
-    // so the wire order follows that sorted order instead of the caller's.
-    expect(raw.split('tag=').length - 1).toBe(2);
-    expect(new URL(raw).searchParams.getAll('tag').sort()).toEqual(['dev', 'prod']);
+    // Params are normalized (array copied and sorted) before both signing and
+    // serialization, so the wire order is deterministic rather than relying on
+    // the signer sorting the caller's array in place.
+    expect(raw).toContain('tag=dev&tag=prod');
+    expect(new URL(raw).searchParams.getAll('tag')).toEqual(['dev', 'prod']);
   });
 
   it('appends to an existing query string with a single ?', async () => {
@@ -858,5 +860,33 @@ describe('TestRuntimeClientQuerySerialization', () => {
     const authHeader = Object.keys(headers).find((key) => key.toLowerCase() === 'authorization');
     expect(authHeader).toBeDefined();
     expect(headers[authHeader!]).toMatch(/^SDK-HMAC-SHA256 /);
+  });
+
+  it('signs exactly the params that reach the wire', async () => {
+    stubCredentials();
+    const mock = stubFetch(jsonResponse({ items: [] }));
+    const signSpy = vi.spyOn(SDKSigner.prototype, 'sign');
+    try {
+      const client = new RuntimeClient({ controlEndpoint: 'https://control.example.com' });
+
+      await client.getAgents({
+        extra: { tag: 'prod', deleted: null, missing: undefined },
+      });
+
+      const raw = String(mock.mock.calls[0][0]);
+      expect(raw).not.toContain('deleted=');
+      expect(raw).not.toContain('missing=');
+
+      // `sign(method, url, headers, body, queryParams)`.
+      const signedQuery = signSpy.mock.calls[0][4] as Array<[string, any]> | undefined;
+      expect(signedQuery).toBeDefined();
+      expect(Object.fromEntries(signedQuery!)).toEqual({
+        offset: '1',
+        limit: '10',
+        tag: 'prod',
+      });
+    } finally {
+      signSpy.mockRestore();
+    }
   });
 });
