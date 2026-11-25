@@ -67,15 +67,21 @@ function _withoutNone(params: Record<string, any>): Record<string, any> {
   return result;
 }
 
-/** Normalize an upload path the same way Python's `os.path` does on a POSIX host. */
-function _resolveUploadPath(path: string): string {
-  if (!path.startsWith('/')) {
-    return posix.join(DEFAULT_PATH, posix.normalize(path));
-  }
-  if (!path.startsWith(DEFAULT_PATH)) {
+/**
+ * Resolve a file path against {@link DEFAULT_PATH} and reject anything that
+ * escapes it.
+ *
+ * `posix.resolve` collapses `..` *before* the boundary check. A plain
+ * `startsWith` would accept `/home/userxxx/a` and `/home/user/../etc/passwd`,
+ * while a raw `posix.join` would silently rewrite `../etc/passwd` into
+ * `/home/etc/passwd` and hand it to the service.
+ */
+function _assertWithinDefaultPath(path: string): string {
+  const resolved = posix.resolve(DEFAULT_PATH, path);
+  if (resolved !== DEFAULT_PATH && !resolved.startsWith(`${DEFAULT_PATH}/`)) {
     throw new Error(`Invalid path. Path must start with ${DEFAULT_PATH}`);
   }
-  return path;
+  return resolved;
 }
 
 /** Build a wire file entry (`text` for strings, base64 `blob` for binary). */
@@ -589,7 +595,7 @@ export class CodeInterpreter {
     content: string | Uint8Array,
     description = '',
   ): Promise<Record<string, any>> {
-    const resolvedPath = _resolveUploadPath(path);
+    const resolvedPath = _assertWithinDefaultPath(path);
     const fileContent = _buildFileContent(resolvedPath, content);
 
     if (description) {
@@ -612,7 +618,7 @@ export class CodeInterpreter {
   async uploadFiles(files: UploadFileSpec[]): Promise<Record<string, any>> {
     const fileContents: Array<Record<string, any>> = [];
     for (const fileSpec of files) {
-      const resolvedPath = _resolveUploadPath(fileSpec.path ?? '');
+      const resolvedPath = _assertWithinDefaultPath(fileSpec.path ?? '');
       fileContents.push(_buildFileContent(resolvedPath, fileSpec.content));
     }
 
@@ -624,19 +630,18 @@ export class CodeInterpreter {
   /**
    * Download a file from the code interpreter.
    *
-   * @param path File path, must start with `/home/user`.
+   * @param path File path, resolved under `/home/user`; paths escaping it are
+   *   rejected with `Invalid path`.
    * @returns File content as text, or raw bytes for binary files.
    */
   async downloadFile(path: string): Promise<string | Buffer> {
-    if (!path.startsWith(DEFAULT_PATH)) {
-      throw new Error(`Invalid path. Path must start with ${DEFAULT_PATH}`);
-    }
+    const targetPath = _assertWithinDefaultPath(path);
 
-    logger.info(`Downloading file from ${path}`);
-    const response = await this.invoke('read_files', { paths: [path] });
+    logger.info(`Downloading file from ${targetPath}`);
+    const response = await this.invoke('read_files', { paths: [targetPath] });
 
     if (!('result' in response) || !('content' in (response['result'] ?? {}))) {
-      throw new Error(`Could not read file: ${path}`);
+      throw new Error(`Could not read file: ${targetPath}`);
     }
     const result = response['result'] as Record<string, any>;
 
@@ -659,26 +664,24 @@ export class CodeInterpreter {
         }
       }
     }
-    throw new Error(`Could not read file: ${path}`);
+    throw new Error(`Could not read file: ${targetPath}`);
   }
 
   /**
    * Download multiple files from the code interpreter.
    *
-   * @param paths List of file paths, each must start with `/home/user`.
+   * @param paths List of file paths, each resolved under `/home/user`; paths
+   *   escaping it are rejected with `Invalid path`.
    * @returns Map of file path to content (text or raw bytes).
    */
   async downloadFiles(paths: string[]): Promise<Record<string, string | Buffer>> {
-    logger.info(`Downloading ${paths.length} files`);
-    for (const path of paths) {
-      if (!path.startsWith(DEFAULT_PATH)) {
-        throw new Error(`Invalid path. Path must start with ${DEFAULT_PATH}`);
-      }
-    }
-    const response = await this.invoke('read_files', { paths });
+    const targets = paths.map((path) => _assertWithinDefaultPath(path));
+
+    logger.info(`Downloading ${targets.length} files`);
+    const response = await this.invoke('read_files', { paths: targets });
 
     if (!('result' in response) || !('content' in (response['result'] ?? {}))) {
-      throw new Error(`Could not read file: ${paths[paths.length - 1] ?? ''}`);
+      throw new Error(`Could not read file: ${targets[targets.length - 1] ?? ''}`);
     }
     const result = response['result'] as Record<string, any>;
 

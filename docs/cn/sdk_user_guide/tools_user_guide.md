@@ -517,7 +517,7 @@ const result2 = await client.executeCommand('python --version');
 **参数**
 | 参数名 | 类型 | 描述 |
 | --- | --- | --- |
-|path |string| **Required**  文件路径，支持绝对路径和相对路径，必须以 "/" 开头，当前仅支持 /home/user 路径下文件上传|
+|path |string| **Required**  文件路径。相对路径以 "/home/user" 为基准；绝对路径必须位于 "/home/user" 之下，越界会抛 "Invalid path"|
 |content |string \| Uint8Array| **Required**  文件内容，可以是字符串或二进制数据（`Uint8Array` / `Buffer`），二进制内容将被 Base64 编码|
 |description |string| 文件描述，此字段可用于 LLMs 理解数据结构（例如： "CSV" with columns: data, revenue, product_id）, default: `""`|
 
@@ -541,7 +541,7 @@ const result = await client.uploadFile(
 | 参数名 | 类型 | 描述 |
 | --- | --- | --- |
 |files |Array<{path, content, description}>| **Required**  文件路径和内容的列表，每个文件包含 "path" 和 "content" 键
-  - "path": 文件路径，支持绝对路径和相对路径，必须以 "/" 开头，当前仅支持 /home/user 路径下文件上传
+  - "path": 文件路径。相对路径以 "/home/user" 为基准；绝对路径必须位于 "/home/user" 之下，越界会抛 "Invalid path"
   - "content": 文件内容（string 或 Uint8Array）
   - "description": 文件描述，此字段可用于 LLMs 理解数据结构|
 
@@ -552,7 +552,7 @@ result(object): 包含文件上传结果的对象
 ```ts
 // 上传多个文件
 const result = await client.uploadFiles([
-  { path: '/data.txt', content: 'Hello, World!' },
+  { path: '/home/user/data.txt', content: 'Hello, World!' },
   { path: '/home/user/my-binary-file', content: Buffer.from('123456') },
 ]);
 ```
@@ -563,7 +563,7 @@ const result = await client.uploadFiles([
 **参数**
 | 参数名 | 类型 | 描述 |
 | --- | --- | --- |
-|path |string| **Required**  文件路径，必须以 "/" 开头，当前仅支持 /home/user 路径下文件下载|
+|path |string| **Required**  文件路径，以 "/home/user" 为基准，越界（如 "/home/userxxx/a"）会抛 "Invalid path"|
 
 **返回值**
 content(string | Buffer): 文件内容，文本文件返回 string 或字节文件返回 Buffer（图片、PDF 等）
@@ -580,7 +580,7 @@ const content = await client.downloadFile('/home/user/data.txt');
 **参数**
 | 参数名 | 类型 | 描述 |
 | --- | --- | --- |
-|paths |string[]| **Required**  文件路径列表，每个路径必须以 "/" 开头，当前仅支持 /home/user 路径下文件下载|
+|paths |string[]| **Required**  文件路径列表，每条路径以 "/home/user" 为基准，任一越界即抛 "Invalid path"|
 
 **返回值**
 files(Record<string, string | Buffer>): 包含文件路径和内容的对象，键为文件路径，值为文件内容（文本或字节）

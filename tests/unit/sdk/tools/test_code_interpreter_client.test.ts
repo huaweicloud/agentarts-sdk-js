@@ -845,6 +845,55 @@ describe('TestCodeInterpreterClient', () => {
     await expect(client.downloadFile(path)).rejects.toThrow(errorMessage);
   });
 
+  // ── Data plane: path containment ─────────────────────────────────
+
+  it('reject sibling directory sharing the /home/user prefix', async () => {
+    markSession();
+    const errorMessage = 'Invalid path. Path must start with /home/user';
+
+    await expect(client.downloadFile('/home/userxxx/a.csv')).rejects.toThrow(errorMessage);
+    await expect(client.uploadFile('/home/userxxx/a.txt', 'x')).rejects.toThrow(errorMessage);
+    await expect(
+      client.downloadFiles(['/home/user/a.csv', '/home/userxxx/a.csv']),
+    ).rejects.toThrow(errorMessage);
+  });
+
+  it('reject dot-dot escape in absolute path', async () => {
+    markSession();
+    const errorMessage = 'Invalid path. Path must start with /home/user';
+
+    await expect(client.downloadFile('/home/user/../etc/passwd')).rejects.toThrow(errorMessage);
+    await expect(client.uploadFile('/home/user/../etc/passwd', 'x')).rejects.toThrow(errorMessage);
+  });
+
+  it('reject relative path escaping /home/user', async () => {
+    markSession();
+    const errorMessage = 'Invalid path. Path must start with /home/user';
+
+    await expect(client.uploadFile('../etc/passwd', 'x')).rejects.toThrow(errorMessage);
+    await expect(client.uploadFile('a/../../etc/passwd', 'x')).rejects.toThrow(errorMessage);
+    await expect(client.downloadFile('../etc/passwd')).rejects.toThrow(errorMessage);
+  });
+
+  it('normalize dot segments before sending the request', async () => {
+    const invokeSpy = spyInvoke({
+      result: {
+        content: [
+          {
+            type: 'resource',
+            resource: { type: 'text', uri: 'file:///home/user/b.txt', text: 'ok' },
+          },
+        ],
+      },
+    });
+    markSession();
+
+    const response = await client.downloadFile('/home/user/a/../b.txt');
+
+    expectInvoke(invokeSpy, 'read_files', { paths: ['/home/user/b.txt'] });
+    expect(response).toBe('ok');
+  });
+
   it('download files with text files', async () => {
     const invokeSpy = spyInvoke({
       result: {
