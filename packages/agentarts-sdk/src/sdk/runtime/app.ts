@@ -28,7 +28,13 @@ import { WebSocketServer } from 'ws';
 import type { RawData, WebSocket as WsWebSocket } from 'ws';
 
 import { AgentArtsRuntimeContext, RequestContext } from './context.js';
-import { ACCESS_TOKEN_HEADER, PingStatus, SESSION_HEADER, USER_ID_HEADER, toPingStatus } from './model.js';
+import {
+  ACCESS_TOKEN_HEADER,
+  PingStatus,
+  SESSION_HEADER,
+  USER_ID_HEADER,
+  toPingStatus,
+} from './model.js';
 import { getLogger, type Logger } from '../utils/logging.js';
 
 // ---------------------------------------------------------------------------
@@ -70,7 +76,7 @@ export interface AgentArtsRuntimeAppOptions {
   debug?: boolean;
   /** Advertised protocol, only used for logging. Defaults to `'http'`. */
   protocol?: 'http' | 'https';
-  /** Maximum number of concurrent `/invocations` requests. Defaults to `15`. */
+  /** Maximum concurrent executions shared by HTTP and explicitly acquired slots. Defaults to `15`. */
   maxConcurrency?: number;
   /** Optional startup/shutdown hooks (the Node equivalent of an ASGI lifespan). */
   lifespan?: RuntimeLifespan | null;
@@ -79,6 +85,147 @@ export interface AgentArtsRuntimeAppOptions {
 /** Request object shape consumed by the endpoint handlers (Python `Request`). */
 export interface HttpRequestLike {
   headers?: any;
+  signal?: AbortSignal;
+}
+
+/** A process-local execution permit. Release only after execution cleanup completes. */
+export interface SlotLease {
+  /** Idempotent: releasing twice never returns an extra permit. */
+  release(): void;
+}
+
+function streamIterator<T>(content: Iterable<T> | AsyncIterable<T>): Iterator<T> | AsyncIterator<T> {
+  const asyncIterator = (content as AsyncIterable<T>)[Symbol.asyncIterator];
+  return typeof asyncIterator === 'function'
+    ? asyncIterator.call(content)
+    : (content as Iterable<T>)[Symbol.iterator]();
+}
+
+/** Own the raw iterator, its in-flight work and cleanup independently of SSE formatting. */
+function retainSlot<T>(
+  content: Iterable<T> | AsyncIterable<T>,
+  lease: SlotLease,
+  format?: (value: T) => string | Buffer,
+  formatError?: (error: unknown, cleanupFailure?: { error: unknown }) => string | Buffer,
+): AsyncIterableIterator<string | Buffer> {
+  let iterator: Iterator<T> | AsyncIterator<T> | undefined;
+  let closed = false;
+  let sourceFinished = false;
+  let cleanupFailureHandled = false;
+  let closing: Promise<IteratorResult<string | Buffer>> | undefined;
+  const pending = new Set<Promise<IteratorResult<T>>>();
+  const getIterator = () => (iterator ??= streamIterator(content));
+  const close = (cancel = true): Promise<IteratorResult<string | Buffer>> => {
+    if (closing) return closing;
+    closed = true;
+    // Queue cleanup so closing is assigned before invoking user iterator methods.
+    closing = Promise.resolve().then(async () => {
+      try {
+        // return() may cancel next(), or (as with async generators) wait for it.
+        // Await raw operations, never wrapper next() promises which await close().
+        const returned = Promise.resolve().then(async () => {
+          // Natural exhaustion already completed the execution. return() is an
+          // early termination hook, not a second completion notification.
+          if (!cancel) return;
+          const source = getIterator();
+          let result: IteratorResult<T> | undefined;
+          const terminate: (() => IteratorResult<T> | Promise<IteratorResult<T>>) | undefined = source.return;
+          if (terminate != null) {
+            result = await terminate.call(source);
+          } else {
+            // No cancellation hook: finish any existing reads first, then drain
+            // to natural completion. Absence of return() is not completion.
+            await Promise.allSettled([...pending]);
+            if (sourceFinished) return;
+            result = await source.next();
+          }
+          // Generators may yield from finally while handling return(). Those
+          // cleanup yields must be exhausted before execution actually finishes.
+          let drained = 0;
+          while (result && !result.done) {
+            // A synchronous producer can otherwise starve the event loop while
+            // the disconnected response is drained without write backpressure.
+            if (++drained % 256 === 0) {
+              await new Promise<void>(resolve => setImmediate(resolve));
+            }
+            result = await source.next();
+          }
+          sourceFinished = true;
+        });
+        const results = await Promise.allSettled([...pending, returned]);
+        const cleanup = results[results.length - 1]!;
+        if (cleanup.status === 'rejected') throw cleanup.reason;
+        return { done: true, value: undefined } as const;
+      } finally {
+        lease.release();
+      }
+    });
+    return closing;
+  };
+  return {
+    [Symbol.asyncIterator]() { return this; },
+    async next() {
+      if (closed) {
+        return { done: true, value: undefined };
+      }
+      const operation = Promise.resolve().then(async () => {
+        try {
+          const result = await getIterator().next();
+          if (result.done) sourceFinished = true;
+          return result;
+        } catch (error) {
+          // A failed read terminates execution; do not restart a source without
+          // return() by calling next() again while handling that failure.
+          sourceFinished = true;
+          throw error;
+        }
+      });
+      pending.add(operation);
+      // Observe rejection immediately without creating an unhandled finally promise.
+      void operation.then(() => pending.delete(operation), () => pending.delete(operation));
+      try {
+        const result = await operation;
+        if (closed) return { done: true, value: undefined };
+        if (result.done) return await close(false);
+        return { done: false, value: format ? format(result.value) : result.value as string | Buffer };
+      } catch (error) {
+        const report = !closed;
+        if (report && formatError) {
+          let cleanupFailure: { error: unknown } | undefined;
+          try {
+            await close();
+          } catch (failure) {
+            cleanupFailure = { error: failure };
+          }
+          const frame = formatError(error, cleanupFailure);
+          cleanupFailureHandled = cleanupFailure !== undefined;
+          return { done: false, value: frame };
+        }
+        await close();
+        throw error;
+      }
+    },
+    async return() {
+      try {
+        return await close();
+      } catch (error) {
+        // A raw SSE failure has already reported this cleanup error. Do not let
+        // the response's final return() replace that error frame with HTTP 500.
+        if (cleanupFailureHandled) return { done: true, value: undefined };
+        throw error;
+      }
+    },
+  };
+}
+
+/** A round was rejected before it started because all execution permits are in use. */
+export class ConcurrencyLimitError extends Error {
+  readonly code = 'CONCURRENCY_LIMIT_EXCEEDED';
+
+  constructor() {
+    super('Service busy - maximum concurrency reached');
+    this.name = 'ConcurrencyLimitError';
+  }
 }
 
 /** Request object with a JSON body (used by `/invocations`). */
@@ -89,6 +236,7 @@ export interface JsonRequestLike extends HttpRequestLike {
 /** Minimal WebSocket surface used by {@link AgentArtsRuntimeApp._handleWebsocket}. */
 export interface WebSocketLike {
   headers?: any;
+  signal?: AbortSignal;
   close?(code?: number, reason?: string): void | Promise<void>;
 }
 
@@ -142,11 +290,7 @@ export class Response {
 
 /** JSON response (Python `JSONResponse`), serialised compactly like Starlette. */
 export class JsonResponse extends Response {
-  constructor(init?: {
-    content?: unknown;
-    statusCode?: number;
-    headers?: Record<string, string>;
-  }) {
+  constructor(init?: { content?: unknown; statusCode?: number; headers?: Record<string, string> }) {
     const content = init?.content === undefined ? null : init.content;
     super({
       statusCode: init?.statusCode ?? 200,
@@ -206,6 +350,7 @@ export class WebSocketDisconnect extends Error {
 
 /** Incoming HTTP request exposed to handlers (Python `starlette.requests.Request`). */
 export class RuntimeRequest {
+  signal?: AbortSignal;
   /** The underlying Node request. */
   readonly raw: IncomingMessage;
   /** HTTP method, e.g. `POST`. */
@@ -226,8 +371,12 @@ export class RuntimeRequest {
     this.method = raw.method ?? 'GET';
     this.url = raw.url ?? '/';
     this.headers = raw.headers ?? {};
-    this.queryParams = new URLSearchParams(this.url.includes('?') ? this.url.slice(this.url.indexOf('?') + 1) : '');
-    this.client = raw.socket ? { host: raw.socket.remoteAddress ?? undefined, port: raw.socket.remotePort ?? undefined } : null;
+    this.queryParams = new URLSearchParams(
+      this.url.includes('?') ? this.url.slice(this.url.indexOf('?') + 1) : '',
+    );
+    this.client = raw.socket
+      ? { host: raw.socket.remoteAddress ?? undefined, port: raw.socket.remotePort ?? undefined }
+      : null;
     this._bodyText = bodyText;
   }
 
@@ -263,6 +412,11 @@ export class RuntimeRequest {
  * completed before the handler runs, so frames may be sent immediately.
  */
 export class WebSocketConnection implements WebSocketLike {
+  private readonly _cancellation = new AbortController();
+  /** Aborted on connection close/error; does not automatically release execution slots. */
+  get signal(): AbortSignal {
+    return this._cancellation.signal;
+  }
   /** The underlying `ws` socket. */
   readonly raw: WsWebSocket;
   /** Headers received with the HTTP upgrade request. */
@@ -406,12 +560,14 @@ export class WebSocketConnection implements WebSocketLike {
       }
     });
     this.raw.on('close', (code: number, reason: Buffer) => {
+      this._cancellation.abort();
       this._closed = true;
       this._closeCode = code;
       this._closeReason = reason ? reason.toString('utf8') : null;
       this._dispatch({ type: 'close', code, reason: this._closeReason ?? '' });
     });
     this.raw.on('error', () => {
+      this._cancellation.abort();
       if (this._closed) {
         return;
       }
@@ -694,7 +850,7 @@ export class AgentArtsRuntimeApp {
   readonly protocol: 'http' | 'https';
   /** Whether debug mode was requested. */
   readonly debug: boolean;
-  /** Maximum number of concurrent invocations. */
+  /** Shared execution capacity for this application instance. */
   readonly maxConcurrency: number;
   /** Logger (`agentarts.runtime.app`). */
   readonly logger: Logger;
@@ -720,6 +876,9 @@ export class AgentArtsRuntimeApp {
     this.debug = options.debug ?? false;
     this.protocol = options.protocol ?? 'http';
     this.maxConcurrency = options.maxConcurrency ?? 15;
+    if (!Number.isSafeInteger(this.maxConcurrency) || this.maxConcurrency <= 0) {
+      throw new RangeError('maxConcurrency must be a positive safe integer');
+    }
     this._lifespan = options.lifespan ?? null;
     this._lastStatusUpdateTime = Date.now();
     this.logger = getLogger('runtime.app');
@@ -756,6 +915,24 @@ export class AgentArtsRuntimeApp {
   websocket(fn: RuntimeWebSocketHandler): RuntimeWebSocketHandler {
     this._wsHandler = fn;
     return fn;
+  }
+
+  /**
+   * Acquire a shared execution slot synchronously, or throw ConcurrencyLimitError.
+   * WebSocket/protocol handlers acquire once per round, not per connection.
+   * HTTP invocations already acquire automatically and must not acquire twice.
+   */
+  acquireSlot(): SlotLease {
+    if (this._activeInvocations >= this.maxConcurrency) throw new ConcurrencyLimitError();
+    this._activeInvocations += 1;
+    let released = false;
+    return {
+      release: () => {
+        if (released) return;
+        released = true;
+        this._activeInvocations -= 1;
+      },
+    };
   }
 
   /**
@@ -861,6 +1038,7 @@ export class AgentArtsRuntimeApp {
       sessionId,
       requestId,
       request,
+      signal: request.signal,
     });
   }
 
@@ -897,7 +1075,9 @@ export class AgentArtsRuntimeApp {
           payload = await request.json();
         } catch (err) {
           const duration = (Date.now() - startTime) / 1000;
-          this.logger.warning(`Invalid JSON payload after ${duration.toFixed(3)} s: ${errorMessage(err)}`);
+          this.logger.warning(
+            `Invalid JSON payload after ${duration.toFixed(3)} s: ${errorMessage(err)}`,
+          );
           return new JsonResponse({
             statusCode: 400,
             content: { error: 'Invalid JSON payload', message: errorMessage(err) },
@@ -919,18 +1099,10 @@ export class AgentArtsRuntimeApp {
         const duration = (Date.now() - startTime) / 1000;
 
         if (result instanceof Response) {
-          this.logger.debug(`Returning predefined response type ${result.constructor?.name ?? 'Response'}`);
+          this.logger.debug(
+            `Returning predefined response type ${result.constructor?.name ?? 'Response'}`,
+          );
           return result;
-        }
-
-        if (isSyncGenerator(result)) {
-          this.logger.info(`Returning streaming response (generator) (${duration.toFixed(3)} s)`);
-          return new StreamingResponse(this._syncStreamHandler(result));
-        }
-
-        if (isAsyncIterable(result)) {
-          this.logger.info(`Returning streaming response (async generator) (${duration.toFixed(3)} s)`);
-          return new StreamingResponse(this._asyncStreamHandler(result));
         }
 
         this.logger.info(`Invocation completed (${duration.toFixed(3)} s)`);
@@ -968,26 +1140,55 @@ export class AgentArtsRuntimeApp {
     taskContext: boolean,
     payload: any,
   ): Promise<any> {
-    if (this._activeInvocations >= this.maxConcurrency) {
+    let lease: SlotLease;
+    try {
+      lease = this.acquireSlot();
+    } catch (err) {
+      if (!(err instanceof ConcurrencyLimitError)) throw err;
       return new JsonResponse({
         statusCode: 503,
         content: { error: 'Service busy - maximum concurrency reached' },
       });
     }
 
-    this._activeInvocations += 1;
+    let transferred = false;
     try {
-      if (taskContext) {
-        return await handler(payload, requestContext);
+      const result = taskContext ? await handler(payload, requestContext) : await handler(payload);
+      if (result instanceof StreamingResponse) {
+        const response = new StreamingResponse(retainSlot(result.contentStream, lease), {
+          statusCode: result.statusCode,
+          headers: result.headers,
+          mediaType: result.mediaType ?? undefined,
+        });
+        // null explicitly disables the automatically generated Content-Type.
+        response.mediaType = result.mediaType;
+        transferred = true;
+        return response;
+      } else if (isSyncGenerator(result) || isAsyncIterable(result)) {
+        const sync = isSyncGenerator(result);
+        const stream = retainSlot(result, lease, value => this._convertToSse(value), (error, cleanupFailure) => {
+          this.logger.exception(`${sync ? 'Sync' : 'Async'} stream error: ${errorName(error)}: ${errorMessage(error)}`);
+          if (cleanupFailure) {
+            this.logger.exception(`Stream cleanup failed: ${errorName(cleanupFailure.error)}: ${errorMessage(cleanupFailure.error)}`);
+          }
+          return this._convertToSse({
+            error: errorMessage(error),
+            error_type: errorName(error),
+            message: `Error occurred during ${sync ? 'sync' : 'async'} stream generation`,
+          });
+        });
+        const response = new StreamingResponse(stream);
+        transferred = true;
+        return response;
       }
-      return await handler(payload);
+      return result;
     } catch (err) {
       this.logger.exception(
         `Handler '${handlerName(handler)}' execution failed: ${errorName(err)}: ${errorMessage(err)}`,
       );
       throw err;
     } finally {
-      this._activeInvocations -= 1;
+      if (!transferred) lease.release();
     }
   }
 
@@ -1095,6 +1296,7 @@ export class AgentArtsRuntimeApp {
    * Resolution order (highest priority first): forced status, custom ping
    * handler result (unwrapped - a promise is treated as an invalid status, as
    * in Python), then `HealthyBusy` while async tasks run, otherwise `Healthy`.
+   * A non-forced Healthy result becomes HealthyBusy when execution slots are full.
    * Async ping handlers are supported by the HTTP endpoint through
    * {@link _handlePing}.
    */
@@ -1109,6 +1311,7 @@ export class AgentArtsRuntimeApp {
       currentStatus = this.hasRunningTasks() ? PingStatus.HEALTHY_BUSY : PingStatus.HEALTHY;
     }
 
+    currentStatus = this._applyCapacityStatus(currentStatus);
     this._recordStatus(currentStatus);
     return currentStatus;
   }
@@ -1231,11 +1434,15 @@ export class AgentArtsRuntimeApp {
       void this._shutdown();
     });
 
-    this.logger.info(`Starting AgentArts runtime on ${listenHost}:${listenPort} (${this.protocol})`);
+    this.logger.info(
+      `Starting AgentArts runtime on ${listenHost}:${listenPort} (${this.protocol})`,
+    );
     server.listen(listenPort, listenHost, () => {
       const address = server.address();
       if (typeof address === 'object' && address) {
-        this.logger.info(`AgentArts runtime listening on ${address.address}:${address.port} (${this.protocol})`);
+        this.logger.info(
+          `AgentArts runtime listening on ${address.address}:${address.port} (${this.protocol})`,
+        );
       }
     });
 
@@ -1249,6 +1456,10 @@ export class AgentArtsRuntimeApp {
 
   private async _handleHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const pathname = pathOf(req.url);
+    const cancellation = new AbortController();
+    const cancel = () => cancellation.abort();
+    req.once('aborted', cancel);
+    res.once('close', cancel);
     try {
       if (pathname === '/invocations') {
         if (req.method !== 'POST') {
@@ -1264,7 +1475,10 @@ export class AgentArtsRuntimeApp {
           return;
         }
         const bodyText = await readRequestBody(req);
-        const response = await this._handleInvocation(new RuntimeRequest(req, bodyText));
+        const request = new RuntimeRequest(req, bodyText);
+        request.signal = cancellation.signal;
+        if (req.aborted || res.destroyed) cancellation.abort();
+        const response = await this._handleInvocation(request);
         await this._writeResponse(res, response);
         return;
       }
@@ -1308,10 +1522,18 @@ export class AgentArtsRuntimeApp {
       } catch {
         res.destroy();
       }
+    } finally {
+      req.off('aborted', cancel);
+      res.off('close', cancel);
     }
   }
 
-  private _handleUpgrade(wss: WebSocketServer, req: IncomingMessage, socket: Duplex, head: Buffer): void {
+  private _handleUpgrade(
+    wss: WebSocketServer,
+    req: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+  ): void {
     const pathname = pathOf(req.url);
 
     if (pathname !== '/ws') {
@@ -1354,11 +1576,7 @@ export class AgentArtsRuntimeApp {
     });
   }
 
-  private async _writeResponse(res: ServerResponse, response: Response): Promise<void> {
-    if (res.writableEnded || res.destroyed) {
-      return;
-    }
-
+  private _setResponseHeaders(res: ServerResponse, response: Response): void {
     res.statusCode = response.statusCode;
 
     for (const [name, value] of Object.entries(response.headers ?? {})) {
@@ -1376,25 +1594,49 @@ export class AgentArtsRuntimeApp {
     if (contentType) {
       res.setHeader('content-type', contentType);
     }
+  }
 
+  private async _writeResponse(res: ServerResponse, response: Response): Promise<void> {
     if (response instanceof StreamingResponse) {
+      const iterator = streamIterator(response.contentStream);
+      let cleanup: Promise<unknown> | undefined;
+      let completed = false;
+      const close = () => {
+        cleanup ??= Promise.resolve().then(() => iterator.return?.());
+        // Observe immediately, then await cleanup in finally before returning.
+        void cleanup.catch(() => {});
+      };
+      res.once('close', close);
       try {
-        for await (const chunk of response.contentStream) {
-          if (res.destroyed || res.writableEnded) {
-            return;
-          }
-          await writeChunk(res, chunk);
+        if (res.writableEnded || res.destroyed) return;
+        // Header/status initialization is part of the stream's ownership scope.
+        this._setResponseHeaders(res, response);
+        while (!res.destroyed && !res.writableEnded) {
+          const chunk = await iterator.next();
+          if (chunk.done || res.destroyed || res.writableEnded) break;
+          await writeChunk(res, chunk.value);
         }
+        completed = true;
       } finally {
-        if (!res.writableEnded) {
-          res.end();
+        close();
+        try {
+          await cleanup;
+        } finally {
+          res.off('close', close);
+          // Leave an unstarted failed response available for the outer 500 handler.
+          if ((completed || res.headersSent) && !res.writableEnded && !res.destroyed) res.end();
         }
       }
       return;
     }
 
+    if (res.writableEnded || res.destroyed) return;
+    this._setResponseHeaders(res, response);
     const body = response.body ?? '';
-    res.setHeader('content-length', String(Buffer.isBuffer(body) ? body.length : Buffer.byteLength(body)));
+    res.setHeader(
+      'content-length',
+      String(Buffer.isBuffer(body) ? body.length : Buffer.byteLength(body)),
+    );
     res.end(body);
   }
 
@@ -1402,7 +1644,9 @@ export class AgentArtsRuntimeApp {
   // Private: ping resolution
   // ------------------------------------------------------------------
 
-  private async _getCurrentPingStatusAsync(requestContext: RequestContext | null): Promise<PingStatus> {
+  private async _getCurrentPingStatusAsync(
+    requestContext: RequestContext | null,
+  ): Promise<PingStatus> {
     let currentStatus: PingStatus | null = this._forcePingStatus;
 
     if (currentStatus === null && this._pingHandler !== null) {
@@ -1413,11 +1657,24 @@ export class AgentArtsRuntimeApp {
       currentStatus = this.hasRunningTasks() ? PingStatus.HEALTHY_BUSY : PingStatus.HEALTHY;
     }
 
+    currentStatus = this._applyCapacityStatus(currentStatus);
     this._recordStatus(currentStatus);
     return currentStatus;
   }
 
-  private async _evaluatePingHandlerAsync(requestContext: RequestContext | null): Promise<PingStatus> {
+  private _applyCapacityStatus(status: PingStatus): PingStatus {
+    if (
+      this._forcePingStatus === null &&
+      status === PingStatus.HEALTHY &&
+      this._activeInvocations >= this.maxConcurrency
+    )
+      return PingStatus.HEALTHY_BUSY;
+    return status;
+  }
+
+  private async _evaluatePingHandlerAsync(
+    requestContext: RequestContext | null,
+  ): Promise<PingStatus> {
     const handler = this._pingHandler;
     if (handler === null) {
       return PingStatus.UNHEALTHY;

@@ -7,6 +7,7 @@
 
 export {
   AgentArtsRuntimeApp,
+  ConcurrencyLimitError,
   JsonResponse,
   JSONResponse,
   Response,
@@ -29,6 +30,7 @@ export type {
   RuntimeRunFunction,
   RuntimeWebSocketHandler,
   StreamingContent,
+  SlotLease,
   WebSocketLike,
   WebSocketMessage,
 } from './app.js';
