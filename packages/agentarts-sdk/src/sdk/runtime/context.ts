@@ -20,11 +20,14 @@ export class RequestContext {
   sessionId?: string | null;
   /** The underlying transport-specific request object. */
   request?: any;
+  /** HTTP peer cancellation. Execution must finish cleanup before releasing its slot. */
+  signal?: AbortSignal;
 
   constructor(init?: Partial<RequestContext>) {
     this.requestId = init?.requestId ?? null;
     this.sessionId = init?.sessionId ?? null;
     this.request = init?.request ?? null;
+    this.signal = init?.signal;
   }
 }
 

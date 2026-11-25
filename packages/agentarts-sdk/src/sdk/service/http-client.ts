@@ -565,5 +565,3 @@ function isBinaryBody(value: any): boolean {
     (typeof ReadableStream !== 'undefined' && value instanceof ReadableStream)
   );
 }
-
-

@@ -65,3 +65,5 @@ export {
 };
 
 export type { CodeLanguage, StsCredentials };
+export { ConcurrencyLimitError } from './runtime/index.js';
+export type { SlotLease } from './runtime/index.js';

@@ -102,7 +102,7 @@ const app = new AgentArtsRuntimeApp({
 | `debug` | `boolean` | `false` | 调试模式 |
 | `lifespan` | `{ onStartup?, onShutdown? }` | `undefined` | 生命周期管理 |
 | `protocol` | `'http'` \| `'https'` | `'http'` | 协议类型 |
-| `maxConcurrency` | `number` | `15` | 最大并发请求数，超出返回 503 错误 |
+| `maxConcurrency` | `number` | `15` | 应用实例共享的执行名额上限，须为正的安全整数；HTTP 满载返回 503，其他协议按轮次调用 `acquireSlot()` |
 
 > **说明：** Python 版的 `middleware`（ASGI 中间件）参数在 Node.js 版中不适用，
 > 如需请求级处理请在入口函数内部实现。
@@ -260,6 +260,61 @@ app.websocket(async (ws: WebSocketConnection, context?: RequestContext) => {
 
 `WebSocketConnection` 提供：`accept()`、`receiveJson()`、`receiveText()`、`sendJson(v)`、
 `sendText(s)`、`send(data)`、`close(code?, reason?)`。
+
+#### 跨协议并发控制
+
+`app.acquireSlot()` 同步获取一轮执行的名额；满载立即抛出
+`ConcurrencyLimitError`，其 `code` 为 `CONCURRENCY_LIMIT_EXCEEDED`。
+返回的 `SlotLease.release()` 可以重复调用，只有第一次会归还名额。
+HTTP `/invocations` 自动获取名额，不能在同一轮 HTTP handler 中再次获取。
+WebSocket handler 必须按业务轮次主动获取，空闲连接和心跳不获取名额。
+现有未接入此 API 的 WebSocket handler 不会自动受到执行并发限制。
+
+```ts
+import { AgentArtsRuntimeApp, ConcurrencyLimitError } from 'agentarts-sdk';
+
+const app = new AgentArtsRuntimeApp({ maxConcurrency: 15 });
+app.websocket(async (ws, context) => {
+  while (true) {
+    const round = await ws.receiveJson();
+    let lease;
+    try {
+      lease = app.acquireSlot();
+    } catch (error) {
+      if (!(error instanceof ConcurrencyLimitError)) throw error;
+      // 这是适配层定义的业务错误帧，SDK 不向不透明协议自动注入 JSON。
+      await ws.sendJson({ sessionId: round.sessionId, error: error.code });
+      continue;
+    }
+    try {
+      // executeRound 是应用实现；必须等实际执行和资源清理结束才 resolve/reject。
+      const result = await executeRound(round, { signal: context.signal });
+      await ws.sendJson({ sessionId: round.sessionId, result });
+    } finally {
+      lease.release();
+    }
+  }
+});
+```
+
+满载拒绝的轮次不得启动执行，上例保持 WS 连接可用。以后接入 A2A / AG-UI
+时也必须在执行边界使用同一个应用的名额，由适配层按其协议版本转换拒绝响应；
+当前 SDK 尚未提供这两个协议面。
+
+HTTP 流式响应在流结束或清理完成后释放名额，而非返回生成器时释放。
+`RequestContext.signal` 在真实 HTTP/WS 连接断开时触发取消；执行器应响应信号，
+并等待子进程退出及资源清理完成。取消本身不会自动归还名额。
+直接调用 `_handleInvocation` 等内部方法时，需要调用方自行提供 signal 并消费或关闭返回的流。
+
+如果流的迭代器没有 `return()` 取消钩子，断连后 SDK 会丢弃后续输出并等待其自然结束，
+期间继续占用执行名额，不会把连接断开当作执行完成。执行器应响应 `context.signal`，
+或者实现等待实际清理完成的 `return()`；无法自然结束的长流需要实现取消能力。
+源读取失败后视为异常终止，不会为排空而重新调用已失败源的 `next()`。
+
+名额用满时，同步健康状态及 HTTP `/ping` 均返回 `HealthyBusy`。
+自定义 ping 返回 `Healthy` 时也受此规则约束；显式强制状态、`Unhealthy`、`Initing`
+仍然保留原有优先级，后台任务原有的忙碌语义保持不变。
+该上限仅在同一应用实例内跨协议共享，不是多进程或多副本的集群总上限。
 
 #### WebSocket 示例：聊天应用
 
@@ -546,7 +601,7 @@ async function processMessage(sessionId: string, message: string): Promise<strin
 
 ## 注意事项
 
-1. **并发限制**: 默认最大并发请求数为 15，可通过 `maxConcurrency` 参数配置，超出返回 503 错误
+1. **并发限制**: 默认共享执行名额为 15；HTTP 自动计数，WebSocket 按轮次调用 `acquireSlot()`；HTTP 满载返回 503
 2. **上下文隔离**: 每个请求的上下文相互隔离，不会互相干扰
 3. **流式响应**: 流式输出使用 SSE (Server-Sent Events) 格式，入口函数返回生成器/异步生成器即可
 4. **健康检查**: 建议实现自定义健康检查逻辑，特别是有状态 Agent；`/ping` 返回 `{"status": "...", "time_of_last_update": <秒级 Unix 时间戳>}`

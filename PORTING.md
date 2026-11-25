@@ -175,6 +175,19 @@ export class Tag {
 
 ## 12. 验证命令
 
+### Runtime 并发控制的明确差异（issue #10）
+
+Node.js 版增加应用实例共享的 `acquireSlot(): SlotLease` 和可识别的
+`ConcurrencyLimitError`。HTTP 自动占用，WebSocket/未来 A2A、AG-UI 适配层按轮次显式占用；
+流式响应持有名额直到流执行和清理结束。HTTP/WS `RequestContext.signal` 提供断连通知，
+名额仅在实际执行清理后释放。默认及自定义 Healthy 在满载时报告 HealthyBusy，
+强制状态和其他健康状态保持优先。maxConcurrency 限定为正的安全整数。
+
+这是针对原移植行为的修复，本次不修改 Python 代码仓，也不代表 Python 已具备同等契约。
+Python 后续同步时应复用相同的轮次粒度、流生命周期和跨协议验收场景。
+对于没有 `return()` 的迭代器，取消后排空至自然结束（不发送剩余输出），期间保留名额；
+排空不与正在执行的读取并发，已结束或已失败的源不会被重新启动。
+
 ```bash
 # 单包类型检查（不会写文件）
 pnpm exec tsc -p packages/agentarts-sdk/tsconfig.json --noEmit
