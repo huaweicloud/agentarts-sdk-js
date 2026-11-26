@@ -1,10 +1,10 @@
 name: Publish to npm
 
-# 打 tag（v*）时按依赖顺序发布以下四个包到 npm：
-#   - @huaweicloud/huaweicloud-sdk-agentidentity（被主包依赖，先发）
-#   - @huaweicloud/agentarts-sdk（主包）
-#   - @huaweicloud/agentarts-protocol-a2a（可选协议适配器，peer 依赖主包）
-#   - @huaweicloud/agentarts-protocol-agui（可选协议适配器，peer 依赖主包）
+# 打 tag（v*）时发布以下四个包到 npm（各自独立发布，互不等待）：
+#   - @huaweicloud/huaweicloud-sdk-agentidentity
+#   - @huaweicloud/agentarts-sdk
+#   - @huaweicloud/agentarts-protocol-a2a（可选协议适配器）
+#   - @huaweicloud/agentarts-protocol-agui（可选协议适配器）
 #
 # 版本约定：
 #   tag 形如 v0.0.1，且必须与 packages/agentarts-sdk 的 version 一致；
@@ -269,29 +269,10 @@ jobs:
             echo "${name}|${version}|published" >> "${RESULTS}"
           }
 
-          # 协议适配器把主包声明为 peerDependency（发布时 workspace:^ 会写成 ^<主包版本>），
-          # 因此必须先确认主包版本在 registry 上可见，再发布适配器。
-          ensure_available() {
-            local name="$1"
-            local version="$2"
-            local attempt
-
-            for attempt in 1 2 3 4 5; do
-              if npm view "${name}@${version}" version --registry "${REGISTRY_URL}" >/dev/null 2>&1; then
-                return 0
-              fi
-              echo "::warning::${name}@${version} is not visible on ${REGISTRY_URL} yet (attempt ${attempt}/5); retrying in 3s."
-              sleep 3
-            done
-
-            echo "::error::${name}@${version} is not available on ${REGISTRY_URL}; refusing to publish packages that peer-depend on it."
-            return 1
-          }
-
-          # 依赖顺序：agentidentity -> agentarts-sdk -> protocol-a2a -> protocol-agui。
+          # 四个包各自独立发布：不判断包之间的先后依赖，也不等待其他包先出现在 registry 上。
+          # 已存在的版本照旧跳过，便于重复打 tag 或只升其中一个包。
           publish_package "@huaweicloud/huaweicloud-sdk-agentidentity" "${IDENTITY_VERSION}"
           publish_package "@huaweicloud/agentarts-sdk" "${SDK_VERSION}"
-          ensure_available "@huaweicloud/agentarts-sdk" "${SDK_VERSION}"
           publish_package "@huaweicloud/agentarts-protocol-a2a" "${A2A_VERSION}"
           publish_package "@huaweicloud/agentarts-protocol-agui" "${AGUI_VERSION}"
 

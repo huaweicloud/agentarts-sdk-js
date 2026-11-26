@@ -17,7 +17,7 @@ import { appendFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-/** Packages to publish, in dependency order: dependents come after their deps. */
+/** Packages to publish, in the order the workflow reports and publishes them. */
 export const PACKAGES = Object.freeze([
   {
     key: 'identity_version',
