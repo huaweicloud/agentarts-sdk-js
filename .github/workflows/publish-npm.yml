@@ -1,4 +1,4 @@
-﻿name: Publish to npm
+name: Publish to npm
 
 # 打 tag（v*）时按依赖顺序发布以下四个包到 npm：
 #   - @huaweicloud/huaweicloud-sdk-agentidentity（先发，主包依赖它）
@@ -65,7 +65,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
@@ -254,7 +254,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
