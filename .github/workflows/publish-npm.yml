@@ -1,10 +1,8 @@
-name: Publish to npm
+﻿name: Publish to npm
 
-# 打 tag（v*）时按依赖顺序发布以下四个包到 npm：
+# 打 tag（v*）时发布以下两个包到 npm：
 #   - @huaweicloud/huaweicloud-sdk-agentidentity（先发，主包依赖它）
 #   - @huaweicloud/agentarts-sdk
-#   - @huaweicloud/agentarts-protocol-a2a
-#   - @huaweicloud/agentarts-protocol-agui
 #
 # 版本约定：
 #   tag 形如 v0.0.1，且必须与 packages/agentarts-sdk 的 version 一致；
@@ -55,23 +53,20 @@ jobs:
       dry_run: ${{ steps.meta.outputs.dry_run }}
       sdk_version: ${{ steps.meta.outputs.sdk_version }}
       identity_version: ${{ steps.meta.outputs.identity_version }}
-      a2a_version: ${{ steps.meta.outputs.a2a_version }}
-      agui_version: ${{ steps.meta.outputs.agui_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.sha }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -102,10 +97,8 @@ jobs:
 
           SDK_VERSION="$(node -p "require('./packages/agentarts-sdk/package.json').version")"
           IDENTITY_VERSION="$(node -p "require('./packages/huaweicloud-sdk-agentidentity/package.json').version")"
-          A2A_VERSION="$(node -p "require('./packages/agentarts-protocol-a2a/package.json').version")"
-          AGUI_VERSION="$(node -p "require('./packages/agentarts-protocol-agui/package.json').version")"
 
-          if [[ -z "${SDK_VERSION}" || -z "${IDENTITY_VERSION}" || -z "${A2A_VERSION}" || -z "${AGUI_VERSION}" ]]; then
+          if [[ -z "${SDK_VERSION}" || -z "${IDENTITY_VERSION}" ]]; then
             echo "::error::Cannot read package versions"
             exit 1
           fi
@@ -142,17 +135,9 @@ jobs:
             DRY_RUN="false"
           fi
 
-          # Dry runs can validate prototype tarballs. Real releases must version
-          # the coordinated changeset so peers cannot resolve to the old SDK.
-          if [[ "${DRY_RUN}" != "true" ]]; then
-            node scripts/check-protocol-release.mjs
-          fi
-
           {
             echo "sdk_version=${SDK_VERSION}"
             echo "identity_version=${IDENTITY_VERSION}"
-            echo "a2a_version=${A2A_VERSION}"
-            echo "agui_version=${AGUI_VERSION}"
             echo "dry_run=${DRY_RUN}"
             echo "tag=${TAG}"
           } >> "${GITHUB_OUTPUT}"
@@ -164,8 +149,6 @@ jobs:
         run: |
           cp README.md LICENSE packages/agentarts-sdk/
           cp README.md LICENSE packages/huaweicloud-sdk-agentidentity/
-          cp LICENSE packages/agentarts-protocol-a2a/
-          cp LICENSE packages/agentarts-protocol-agui/
 
       - name: Validate npm tarballs
         shell: bash
@@ -179,7 +162,6 @@ jobs:
             local name="$1"
             local required_file="$2"
             local tarball
-            local contents
             tarball="$(pnpm --filter "${name}" pack --pack-destination "${PACK_DIR}" | tail -n 1)"
 
             if [[ ! -f "${tarball}" ]]; then
@@ -188,28 +170,19 @@ jobs:
             fi
 
             echo "Packed ${name} -> ${tarball}"
-            contents="${tarball}.files"
-            # Read the archive completely before grep -q: with pipefail a large
-            # tar listing can otherwise fail when grep closes its pipe early.
-            tar -tzf "${tarball}" > "${contents}"
-            if ! grep -qx "package/dist/index.js" "${contents}"; then
+            if ! tar -tzf "${tarball}" | grep -qx "package/dist/index.js"; then
               echo "::error::${name} tarball is missing dist/index.js"
               exit 1
             fi
-            if ! grep -qx "package/README.md" "${contents}"; then
+            if ! tar -tzf "${tarball}" | grep -qx "package/README.md"; then
               echo "::error::${name} tarball is missing README.md"
               exit 1
             fi
-            if ! grep -qx "package/LICENSE" "${contents}"; then
-              echo "::error::${name} tarball is missing LICENSE"
-              exit 1
-            fi
-            if [[ -n "${required_file}" ]] && ! grep -qx "${required_file}" "${contents}"; then
+            if [[ -n "${required_file}" ]] && ! tar -tzf "${tarball}" | grep -qx "${required_file}"; then
               echo "::error::${name} tarball is missing ${required_file}"
               exit 1
             fi
-            tar -xOf "${tarball}" package/package.json > "${tarball}.package.json"
-            if grep -q '"workspace:' "${tarball}.package.json"; then
+            if tar -xOf "${tarball}" package/package.json | grep -q '"workspace:'; then
               echo "::error::${name} tarball still contains 'workspace:' dependencies (pnpm should rewrite them)"
               exit 1
             fi
@@ -217,16 +190,12 @@ jobs:
 
           pack_and_check "@huaweicloud/huaweicloud-sdk-agentidentity" ""
           pack_and_check "@huaweicloud/agentarts-sdk" "package/dist/assets/toolkit/plugins/memory/resources/scripts/_shared.mjs"
-          pack_and_check "@huaweicloud/agentarts-protocol-a2a" "package/dist/index.d.ts"
-          pack_and_check "@huaweicloud/agentarts-protocol-agui" "package/dist/index.d.ts"
 
       - name: Write summary
         shell: bash
         env:
           SDK_VERSION: ${{ steps.meta.outputs.sdk_version }}
           IDENTITY_VERSION: ${{ steps.meta.outputs.identity_version }}
-          A2A_VERSION: ${{ steps.meta.outputs.a2a_version }}
-          AGUI_VERSION: ${{ steps.meta.outputs.agui_version }}
           DRY_RUN: ${{ steps.meta.outputs.dry_run }}
         run: |
           {
@@ -236,8 +205,6 @@ jobs:
             echo "| --- | --- | --- |"
             echo "| @huaweicloud/huaweicloud-sdk-agentidentity | ${IDENTITY_VERSION} | ${REGISTRY_URL} |"
             echo "| @huaweicloud/agentarts-sdk | ${SDK_VERSION} | ${REGISTRY_URL} |"
-            echo "| @huaweicloud/agentarts-protocol-a2a | ${A2A_VERSION} | ${REGISTRY_URL} |"
-            echo "| @huaweicloud/agentarts-protocol-agui | ${AGUI_VERSION} | ${REGISTRY_URL} |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   publish:
@@ -251,16 +218,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.sha }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -278,8 +244,6 @@ jobs:
         run: |
           cp README.md LICENSE packages/agentarts-sdk/
           cp README.md LICENSE packages/huaweicloud-sdk-agentidentity/
-          cp LICENSE packages/agentarts-protocol-a2a/
-          cp LICENSE packages/agentarts-protocol-agui/
 
       - name: Publish to npm
         shell: bash
@@ -288,12 +252,8 @@ jobs:
           npm_config_registry: ${{ env.REGISTRY_URL }}
           SDK_VERSION: ${{ needs.verify.outputs.sdk_version }}
           IDENTITY_VERSION: ${{ needs.verify.outputs.identity_version }}
-          A2A_VERSION: ${{ needs.verify.outputs.a2a_version }}
-          AGUI_VERSION: ${{ needs.verify.outputs.agui_version }}
         run: |
           set -euo pipefail
-
-          node scripts/check-protocol-release.mjs
 
           if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
             echo "::error::NPM_TOKEN secret is not configured. Add an npm Automation token in repository secrets."
@@ -334,8 +294,6 @@ jobs:
           # 先发布被依赖的包，再发布主包。
           publish_package "@huaweicloud/huaweicloud-sdk-agentidentity" "${IDENTITY_VERSION}"
           publish_package "@huaweicloud/agentarts-sdk" "${SDK_VERSION}"
-          publish_package "@huaweicloud/agentarts-protocol-a2a" "${A2A_VERSION}"
-          publish_package "@huaweicloud/agentarts-protocol-agui" "${AGUI_VERSION}"
 
           {
             echo "### npm publish results"
