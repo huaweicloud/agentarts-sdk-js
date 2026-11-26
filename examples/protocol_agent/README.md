@@ -38,6 +38,17 @@ export AGENTARTS_PROTOCOL_STORAGE_KEY="$(openssl rand -hex 32)"
 pnpm --filter agentarts-protocol-example start:full
 ```
 
+On Windows PowerShell, generate the same values using Node:
+
+```powershell
+$env:AGENTARTS_PROTOCOL_TOKEN = node -p "require('node:crypto').randomBytes(32).toString('hex')"
+$env:AGENTARTS_PROTOCOL_STORAGE_KEY = node -p "require('node:crypto').randomBytes(32).toString('hex')"
+pnpm --filter agentarts-protocol-example start:full
+```
+
+Use Ctrl+C to stop the example and keep the same environment variables when restarting.
+In another PowerShell window, set the same token and use `Invoke-RestMethod` with a JSON body from `ConvertTo-Json` for A2A requests. Use `curl.exe -N` with a JSON file and `--data-binary '@request.json'` for AG-UI SSE.
+
 AG-UI listens on 8000; A2A JSON-RPC and REST on 8001. State is saved in `.agentarts-protocol` relative to the example working directory. Keep one process per storage directory. `PORT`, `A2A_PORT`, `AGENTARTS_PROTOCOL_STORAGE_DIR` and `AGENTARTS_PROTOCOL_PUBLIC_ORIGIN` override defaults. The static token maps to one local identity.
 
 First request pauses for approval:

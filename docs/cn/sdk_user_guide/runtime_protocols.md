@@ -72,7 +72,7 @@ AG-UI 执行器接收未经文本扁平化的完整校验输入，`context.emit(
 
 `ProtocolStorage` 的 `get(scope,key)`、`update(scope,key,change)`、`list(scope)` 可替换。update 必须对同一键原子执行，change 为纯函数；scope 由 namespace 与认证身份构成。不同逻辑 Agent 共用存储时应配置不同 namespace，并在重启间保持该值稳定。
 
-内置 `MemoryProtocolStorage` 与 `FileProtocolStorage`。本地目录默认 0700、记录 0600，拒绝符号链接记录、危险 JSON 键与非 JSON 对象；原子替换、文件和目录 fsync，支持可选 32 字节 AES-256-GCM 密钥。配置密钥时拒绝读未加密记录；密钥应由环境/密钥管理服务提供，不能提交到代码仓。
+内置 `MemoryProtocolStorage` 与 `FileProtocolStorage`。拒绝符号链接目录与记录、危险 JSON 键及非 JSON 对象。写入时同步文件并原子替换。POSIX 上目录默认 0700、记录 0600，替换后同步目录。Windows 上应将存储放在仅运行账户可访问且可修改的目录，权限由 ACL 管理，SDK 不校验 ACL，也不执行目录 fsync。支持可选 32 字节 AES-256-GCM 密钥。配置密钥时拒绝读未加密记录；密钥应由环境/密钥管理服务提供，不能提交到代码仓。
 
 默认最多 1024 条记录、单条 4 MiB、总量 64 MiB；A2A 幂等索引也计入记录数，每身份默认最多 64 个任务。满容量时拒绝写入，不能无限使用磁盘；应用需制定保留/归档策略。AG-UI 保留最近至多 8 个 run 并按记录大小淘汰旧 run，旧 run 淘汰后不保证永久幂等；A2A 历史也有大小上限。
 
