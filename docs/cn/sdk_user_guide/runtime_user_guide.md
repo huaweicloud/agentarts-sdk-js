@@ -299,7 +299,7 @@ app.websocket(async (ws, context) => {
 
 满载拒绝的轮次不得启动执行，上例保持 WS 连接可用。以后接入 A2A / AG-UI
 时也必须在执行边界使用同一个应用的名额，由适配层按其协议版本转换拒绝响应；
-当前 SDK 尚未提供这两个协议面。
+两个可选协议包已按此执行边界接入，详见本文末尾的协议说明。
 
 HTTP 流式响应在流结束或清理完成后释放名额，而非返回生成器时释放。
 `RequestContext.signal` 在真实 HTTP/WS 连接断开时触发取消；执行器应响应信号，
@@ -607,3 +607,8 @@ async function processMessage(sessionId: string, message: string): Promise<strin
 4. **健康检查**: 建议实现自定义健康检查逻辑，特别是有状态 Agent；`/ping` 返回 `{"status": "...", "time_of_last_update": <秒级 Unix 时间戳>}`
 5. **WebSocket 生命周期**: 需要自行处理连接的 accept、receive、send、close
 6. **注册方式**: TypeScript 版使用 `app.entrypoint(handler)` 等方法注册，不支持装饰器语法
+
+## 可选 A2A / AG-UI 协议
+
+AG-UI 完整入口通过 `app.use(createAguiAgent(...))` 接入；A2A 完整服务通过 `createA2aService({ runtime: app, ... })` 接入，共用执行名额，协议依赖保留在独立可选包中。提供可替换存储及单进程本地持久化恢复。
+详见 [协议适配、能力限制与部署验收](runtime_protocols.md)。云端网关透传尚未验证。

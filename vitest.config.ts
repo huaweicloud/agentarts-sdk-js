@@ -9,7 +9,11 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
-    include: ['tests/unit/**/*.test.ts', 'tests/smoke/**/*.test.ts'],
+    include: [
+      'tests/unit/**/*.test.ts',
+      'tests/smoke/**/*.test.ts',
+      'tests/acceptance/**/*.test.ts',
+    ],
     exclude: ['tests/integration/**', '**/node_modules/**', '**/dist/**'],
     setupFiles: ['./tests/setup.ts'],
     testTimeout: 30_000,

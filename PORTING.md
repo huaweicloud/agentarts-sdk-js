@@ -54,7 +54,7 @@ import { ShowNamespaceRequest } from '@huaweicloud/huaweicloud-sdk-swr/v2/model/
 > 上游已知打包缺陷：`@huaweicloud/huaweicloud-sdk-core@3.1.222` 的
 > `http/DefaultUserAgent.js` 在运行期 `require('uuid')`，但其 `package.json` 未声明
 > `uuid` 依赖。本仓库通过 `pnpm-workspace.yaml` 的 `packageExtensions` 为其补上
-> `uuid@^9`，同时主包显式声明 `uuid` 依赖，避免 pnpm 严格依赖布局下加载
+> `uuid@^11.1.1`，同时主包显式声明 `uuid` 依赖，避免 pnpm 严格依赖布局下加载
 > `ClientBuilder` 失败。若升级上游版本且其修复了依赖声明，可删除这两处兜底。
 
 `agentarts/sdk/runtime/app.py` → `packages/agentarts-sdk/src/sdk/runtime/app.ts`。
@@ -198,3 +198,13 @@ pnpm exec tsc -p packages/agentarts-sdk/tsconfig.json
 # 单元测试（仓库根目录）
 pnpm exec vitest run tests/unit/sdk/<...>.test.ts
 ```
+
+## 13. 可选协议扩展的明确差异
+
+Node.js 新增 `app.use()`、`app.executions`、独立执行完成信号和两个可选协议包。
+这些是新增能力，不代表 Python 参考实现已有对应 API。本次保持既有 HTTP/WS 入口行为，
+不将 A2A/AG-UI 模型引入基础 SDK。完整入口 createA2aService / createAguiAgent 提供多轮任务、附件、推送/签名/扩展及工具、状态、中断等能力；基础 SDK 提供可替换存储接口和本地持久化。FileProtocolStorage 只支持单 OS 进程，云端透传及分布式执行未验收。
+新增 workspace 示例和依赖仅服务于协议功能及互通测试，发布时使用配套 changeset 协调版本。
+
+生产依赖安全审计：底座 core 的缺失依赖补充固定在支持 CommonJS 的 uuid 11 系列（>=11.1.1），
+避免 uuid <11.1.1 的缓冲区边界检查公告 GHSA-w5hq-g745-h8pq；不使用 ESM-only 的新主版本替代该兼容依赖。

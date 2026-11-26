@@ -2,19 +2,35 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "paths": {
-      "agentarts-sdk": ["./packages/agentarts-sdk/src/index.ts"],
+      "agentarts-sdk": [
+        "./packages/agentarts-sdk/src/index.ts"
+      ],
       "agentarts-sdk/*": [
         "./packages/agentarts-sdk/src/*.ts",
         "./packages/agentarts-sdk/src/*/index.ts"
       ],
-      "huaweicloud-sdk-agentidentity": ["./packages/huaweicloud-sdk-agentidentity/src/index.ts"],
+      "huaweicloud-sdk-agentidentity": [
+        "./packages/huaweicloud-sdk-agentidentity/src/index.ts"
+      ],
       "huaweicloud-sdk-agentidentity/*": [
         "./packages/huaweicloud-sdk-agentidentity/src/*.ts",
         "./packages/huaweicloud-sdk-agentidentity/src/*/index.ts"
+      ],
+      "@huaweicloud/agentarts-sdk": [
+        "./packages/agentarts-sdk/src/index.ts"
+      ],
+      "@huaweicloud/agentarts-sdk/*": [
+        "./packages/agentarts-sdk/src/*.ts",
+        "./packages/agentarts-sdk/src/*/index.ts"
       ]
     }
   },
-  "include": ["packages/*/src/**/*.ts", "tests/**/*.ts"]
+  "include": [
+    "packages/*/src/**/*.ts",
+    "tests/**/*.ts"
+  ]
 }

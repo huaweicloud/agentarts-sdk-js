@@ -5,6 +5,8 @@ const root = dirname(fileURLToPath(import.meta.url));
 const p = (rel: string): string => resolve(root, rel);
 
 export default [
+  { find: /^@huaweicloud\/agentarts-sdk$/, replacement: p('packages/agentarts-sdk/src/index.ts') },
+  { find: /^@huaweicloud\/agentarts-sdk\/(.*)$/, replacement: p('packages/agentarts-sdk/src/$1') },
   { find: /^agentarts-sdk$/, replacement: p('packages/agentarts-sdk/src/index.ts') },
   { find: /^agentarts-sdk\/sdk$/, replacement: p('packages/agentarts-sdk/src/sdk/index.ts') },
   {
