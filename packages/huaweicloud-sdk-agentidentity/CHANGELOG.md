@@ -1,5 +1,11 @@
 # @huaweicloud/huaweicloud-sdk-agentidentity
 
+## 0.0.5
+
+### Patch Changes
+
+- a2a ag-ui
+
 ## 0.0.4
 
 ### Patch Changes
