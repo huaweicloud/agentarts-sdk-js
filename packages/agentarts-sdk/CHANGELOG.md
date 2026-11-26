@@ -1,5 +1,13 @@
 # @huaweicloud/agentarts-sdk
 
+## 0.0.3
+
+### Patch Changes
+
+- a2a ag-ui
+- Updated dependencies
+  - @huaweicloud/huaweicloud-sdk-agentidentity@0.0.3
+
 ## 0.0.2
 
 ### Minor Changes

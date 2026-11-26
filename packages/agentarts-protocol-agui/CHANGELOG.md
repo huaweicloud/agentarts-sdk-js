@@ -1,6 +1,14 @@
 # @huaweicloud/agentarts-protocol-agui
 
-## 0.1.0
+## 0.0.3
+
+### Patch Changes
+
+- a2a ag-ui
+- Updated dependencies
+  - @huaweicloud/agentarts-sdk@0.0.3
+
+## 0.0.2
 
 ### Minor Changes
 
@@ -19,4 +27,4 @@
 - A2A AG-UI协议支持
 - Updated dependencies [23b9b85]
 - Updated dependencies
-  - @huaweicloud/agentarts-sdk@0.1.0
+  - @huaweicloud/agentarts-sdk@0.0.2
